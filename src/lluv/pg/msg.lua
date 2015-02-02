@@ -183,6 +183,9 @@ function MessageDecoder.ErrorResponse(data)
     res[typ] = field
     if pos == #data then break end
   end end
+  assert(res.S, "Severity required")
+  assert(res.C, "SQLSTATE required")
+  assert(res.M, "Message  required")
   return res
 end
 
