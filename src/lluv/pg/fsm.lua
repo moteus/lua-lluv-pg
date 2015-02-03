@@ -260,19 +260,58 @@ function Base:on_terminate() end
 
 end
 
+local function InitFSM(...)
+  local fsm = FSM.new(...)
+
+  fsm:action("server_error",    on_server_error)
+
+  fsm:action("protocol_error",  on_protocol_error)
+
+  fsm:action("decode_status",   on_status)
+
+  fsm:action("decode_notify",   on_notify)
+
+  fsm:action("decode_notice",   on_notice)
+
+  fsm:action("new_rs",          on_new_recordset)
+
+  fsm:action("decode_row",      on_data_row)
+
+  fsm:action("close_rs",        on_close_recordset)
+
+  fsm:action("empty_rs",        on_empty_recordset)
+
+  fsm:action("exec_complite",   on_execute)
+
+  return fsm
+end
+
+local function InitState(a, b)
+  local err_state, t = a, b
+  if not t then err_state, t = nil, a end
+
+  local default = {
+    ['*']                 = {"protocol_error", "terminate"     };
+    ParameterStatus       = {"decode_status"                   };
+    NoticeResponse        = {"decode_notice"                   };
+    NotificationResponse  = {"decode_notify"                   };
+  }
+
+  if err_state then
+    default.ErrorResponse = {"server_error",   err_state       };
+  end
+
+  for k, v in pairs(default) do
+    if not t[k] then t[k] = v end
+  end
+  return t
+end
+
+local S = InitState
+
 local Setup = ut.class(Base) do
 
-local fsm = FSM.new("setup") 
-
-fsm:action("server_error",    on_server_error)
-
-fsm:action("protocol_error",  on_protocol_error)
-
-fsm:action("decode_status",   on_status)
-
-fsm:action("decode_notice",   on_notice)
-
-fsm:action("decode_notify",   on_notify)
+local fsm = InitFSM("setup")
 
 fsm:action("send_md5_auth",   function(self, event, ctx, data)
   local _, salt = MessageDecoder.AuthenticationMD5Password(data)
@@ -297,38 +336,23 @@ fsm:action("decode_pidkey",   function(self, event, ctx, data)
   ctx:on_backend_key(pid, key)
 end)
 
-fsm:state("setup", {
-  ['*']                 = {"protocol_error",  "terminate"};
-  ErrorResponse         = {"server_error",    "terminate"};
-  ParameterStatus       = {"decode_status"               };
-  NoticeResponse        = {"decode_notice"               };
+fsm:state("setup", S("terminate", {
   BackendKeyData        = {"decode_pidkey"               };
-  NotificationResponse  = {"decode_notify"               };
   ReadyForQuery         = {nil,               "ready"    };
 
   AuthenticationMD5Password        = {"send_md5_auth",    "wait_auth_response" };
   AuthenticationCleartextPassword  = {"send_clear_auth",  "wait_auth_response" };
-})
+}))
 
-fsm:state("wait_auth_response", {
-  ['*']                 = {"protocol_error",  "terminate"};
-  ErrorResponse         = {"server_error",    "terminate"};
-  ParameterStatus       = {"decode_status"               };
-  NoticeResponse        = {"decode_notice"               };
-  NotificationResponse  = {"decode_notify"               };
+fsm:state("wait_auth_response", S("terminate", {
   ReadyForQuery         = {nil,               "ready"    };
   AuthenticationOk      = {nil,               "auth_done"};
-})
+}))
 
-fsm:state("auth_done",{
-  ['*']                 = {"protocol_error",  "terminate"};
-  ErrorResponse         = {"server_error",    "terminate"};
-  ParameterStatus       = {"decode_status"               };
-  NoticeResponse        = {"decode_notice"               };
+fsm:state("auth_done", S("terminate", {
   BackendKeyData        = {"decode_pidkey"               };
-  NotificationResponse  = {"decode_notify"               };
   ReadyForQuery         = {nil,               "ready"    };
-})
+}))
 
 fsm:state("ready", on_ready)
 
@@ -352,56 +376,25 @@ end
 
 local SimpleQuery = ut.class(Base) do
 
-local fsm = FSM.new("wait_response") 
+local fsm = InitFSM("wait_response")
 
-fsm:action("server_error",    on_server_error)
+fsm:state("wait_response", S("error_recived", {
+  ReadyForQuery      = {nil,            "ready"         };
+  EmptyQueryResponse = {"empty_rs"                      };
+  CommandComplete    = {"exec_complite"                 };
+  RowDescription     = {"new_rs",       "wait_row_data" };
+}))
 
-fsm:action("protocol_error",  on_protocol_error)
+fsm:state("wait_row_data",S("error_recived", {
+  ReadyForQuery    = {nil,              "ready"         };
+  DataRow          = {"decode_row"                      };
+  CommandComplete  = {"close_rs",       "wait_response" };
+}))
 
-fsm:action("decode_status",   on_status)
-
-fsm:action("decode_notify",   on_notify)
-
-fsm:action("new_rs",          on_new_recordset)
-
-fsm:action("decode_row",      on_data_row)
-
-fsm:action("close_rs",        on_close_recordset)
-
-fsm:action("exec_complite",   on_execute)
-
-fsm:action("empty",           on_empty_recordset)
-
-fsm:state("wait_response", {
-  ['*']            = {"protocol_error",  "terminate"};
-  ParameterStatus  = {"decode_status"               };
-  NoticeResponse   = {"decode_notice"               };
-
-  ErrorResponse    = {"server_error",  "error_recived"};
-  ReadyForQuery    = {nil,             "ready"        };
-
-  EmptyQueryResponse = {"empty"         };
-  CommandComplete    = {"exec_complite" };
-
-  RowDescription   = {"new_rs",          "wait_row_data" };
-})
-
-fsm:state("wait_row_data",{
-  ['*']            = {"protocol_error",  "terminate"     };
-  ErrorResponse    = {"server_error",    "error_recived" };
-  ParameterStatus  = {"decode_status"                    };
-  ReadyForQuery    = {nil,               "ready"         };
-
-  DataRow          = {"decode_row"                       };
-  CommandComplete  = {"close_rs",        "wait_response" };
-})
-
-fsm:state("error_recived",{
+fsm:state("error_recived", S("error_recived", {
   ['*']            = {};
-  ParameterStatus  = {"decode_status"                    };
-  NoticeResponse   = {"decode_notice"                    };
-  ReadyForQuery    = {nil,               "ready"         };
-})
+  ReadyForQuery    = {nil,              "ready"         };
+}))
 
 fsm:state("ready", on_ready)
 
@@ -428,19 +421,10 @@ function SimpleQuery:on_exec(rows) end
 end
 
 local Idle = ut.class(Base) do
-local fsm = FSM.new("wait")
 
-fsm:action("decode_status",  on_status)
+local fsm = InitFSM("wait")
 
-fsm:action("decode_notify",  on_notify)
-
-fsm:action("protocol_error", on_protocol_error)
-
-fsm:state("wait", {
-  ['*']                 = {"protocol_error",  "terminate"};
-  ParameterStatus       = {"decode_status"               };
-  NotificationResponse  = {"decode_notify"               };
-})
+fsm:state("wait", S{})
 
 fsm:state("terminate", on_terminate)
 
@@ -456,44 +440,27 @@ end
 end
 
 local Prepare = ut.class(Base) do
-local fsm = FSM.new("wait")
 
-fsm:action("decode_status",  on_status)
-
-fsm:action("decode_notify",  on_notify)
-
-fsm:action("server_error",   on_server_error)
-
-fsm:action("protocol_error", on_protocol_error)
-
-fsm:action("new_rs",         on_new_recordset)
+local fsm = InitFSM("wait")
 
 fsm:action("decode_params",  function(self, event, ctx, data)
   local typs = MessageDecoder.ParameterDescription(data)
   ctx:on_params(typs)
 end)
 
-fsm:state("wait", {
-  ['*']                 = {"protocol_error",  "terminate"     };
-  ParameterStatus       = {"decode_status"                    };
-  NotificationResponse  = {"decode_notify"                    };
+fsm:state("wait", S("wait_ready", {
   ParameterDescription  = {"decode_params"                    };
   RowDescription        = {"new_rs"                           };
 
-  ErrorResponse         = {"server_error",    "wait_ready"    };
   ParseComplete         = {nil,               "wait_ready"    };
-})
+}))
 
-fsm:state("wait_ready", {
-  ['*']                 = {"protocol_error" };
-  ErrorResponse         = {"server_error"   };
-  ParameterStatus       = {"decode_status"  };
-  NotificationResponse  = {"decode_notify"  };
-  ParameterDescription  = {"decode_params"  };
-  RowDescription        = {"new_rs"         };
+fsm:state("wait_ready", S("wait_ready",{
+  ParameterDescription  = {"decode_params"        };
+  RowDescription        = {"new_rs"               };
 
-  ReadyForQuery         = {nil, "ready"};
-})
+  ReadyForQuery         = {nil,           "ready" };
+}))
 
 fsm:state("ready", on_ready)
 
@@ -519,63 +486,28 @@ function Prepare:on_params() end
 end
 
 local Execute = ut.class(Base) do
-local fsm = FSM.new("wait")
 
-fsm:action("decode_status",  on_status)
+local fsm = InitFSM("wait")
 
-fsm:action("decode_notify",  on_notify)
-
-fsm:action("server_error",   on_server_error)
-
-fsm:action("protocol_error", on_protocol_error)
-
-fsm:action("decode_row",     on_data_row)
-
-fsm:action("close_rs",       on_close_recordset)
-
-fsm:action("exec_complite",  on_execute)
-
-fsm:action("empty",          on_empty_recordset)
-
-fsm:state("wait", {
-  ['*']              = {"protocol_error", "terminate"     };
-  ErrorResponse      = {"server_error",   "wait_ready"    };
-  ParameterStatus    = {"decode_status"                   };
-  NoticeResponse     = {"decode_notice"                   };
-
+fsm:state("wait", S("wait_ready", {
   BindComplete       = {nil,              "bound"         };
-})
+}))
 
-fsm:state("bound", {
-  ['*']              = {"protocol_error", "terminate"     };
-  ErrorResponse      = {"server_error",   "wait_ready"    };
-  ParameterStatus    = {"decode_status"                   };
-  NoticeResponse     = {"decode_notice"                   };
-
+fsm:state("bound", S("wait_ready", {
   DataRow            = {"decode_row",     "wait_row_data" };
-  EmptyQueryResponse = {"empty",          "wait_ready"    };
+  EmptyQueryResponse = {"empty_rs",       "wait_ready"    };
   CommandComplete    = {"exec_complite",  "wait_ready"    };
-})
+}))
 
-fsm:state("wait_row_data",{
-  ['*']              = {"protocol_error", "terminate"     };
-  ErrorResponse      = {"server_error",   "wait_ready"    };
-  ParameterStatus    = {"decode_status"                   };
-  NoticeResponse     = {"decode_notice"                   };
-
+fsm:state("wait_row_data", S("wait_ready", {
   DataRow            = {"decode_row"                      };
   CommandComplete    = {"close_rs",       "wait_ready"    };
-})
+}))
 
-fsm:state("wait_ready", {
-  ['*']                 = {"protocol_error" };
-  ErrorResponse         = {"server_error"   };
-  ParameterStatus       = {"decode_status"  };
-  NotificationResponse  = {"decode_notify"  };
-
+fsm:state("wait_ready", S("wait_ready", {
   CloseComplete         = {                 };
   ReadyForQuery         = {nil,     "ready" };
-})
+}))
 
 fsm:state("ready", on_ready)
 
