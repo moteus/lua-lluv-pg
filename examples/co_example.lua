@@ -23,6 +23,9 @@ ut.corun(function()
 
   print(cnn:query(sql))
 
+  sql = "select * from pg_am where amname=$1"
+  print(cnn:execute(sql, {'btree'}))
+
   cnn:disconnect()
 end)
 

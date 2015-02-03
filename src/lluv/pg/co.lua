@@ -7,6 +7,8 @@ local Setup         = FSM.Setup
 local SimpleQuery   = FSM.SimpleQuery
 local Idle          = FSM.Idle
 local FSMReader     = FSM.FSMReader
+local Prepare       = FSM.Prepare
+local Execute       = FSM.Execute
 
 local function append(t, v) t[#t + 1] = v end
 
@@ -18,7 +20,7 @@ local function NewPG(cfg)
 
   local cnn, srv_err
   local bkey, status = {}, {}
-  local rs, rows_affected, col, num_queries
+  local rs, rows_affected, col
   local host = cfg.host or '127.0.0.1'
   local port = cfg.port or 5432
   local terminated = false
@@ -37,7 +39,7 @@ local function NewPG(cfg)
 
   function setup:on_backend_key(pid, key) bkey.pid, bkey.key = pid, key end
 
-  function setup:on_ready() srv_err = nil end
+  function setup:on_ready() end
 
   function setup:on_terminate()
     terminated = true
@@ -56,7 +58,6 @@ local function NewPG(cfg)
   query.on_terminate      = setup.on_terminate
 
   function query:on_new_rs(desc)
-    num_queries = num_queries + 1
     append(rs, { partial = true })
     col = desc[1]
   end
@@ -71,6 +72,29 @@ local function NewPG(cfg)
 
   function query:on_exec(rows) append(rs, {affected_rows = rows}) end
 
+  end
+
+  local prepare = Prepare.new() do
+  prepare.on_send           = query.on_send
+  prepare.on_error          = query.on_error
+  prepare.on_protocol_error = query.on_protocol_error
+  prepare.on_status         = query.on_status
+  prepare.on_ready          = query.on_ready
+  prepare.on_terminate      = query.on_terminate
+  prepare.on_new_rs         = query.on_new_rs
+  end
+
+  local execute = Execute.new() do
+  execute.on_send           = query.on_send
+  execute.on_error          = query.on_error
+  execute.on_protocol_error = query.on_protocol_error
+  execute.on_status         = query.on_status
+  execute.on_ready          = query.on_ready
+  execute.on_terminate      = query.on_terminate
+  execute.on_new_rs         = query.on_new_rs
+  execute.on_row            = query.on_row
+  execute.on_close_rs       = query.on_close_rs
+  execute.on_exec           = query.on_exec
   end
 
   local reader = FSMReader.new()
@@ -101,7 +125,7 @@ local function NewPG(cfg)
   end
 
   function cli:query(sql)
-    num_queries, rs = 0, {}
+    rs, srv_err = {}
 
     reader:reset(query:reset())
     query:start(sql)
@@ -111,14 +135,38 @@ local function NewPG(cfg)
       reader:append(data)
     end
 
-    if rs then
-      local n = #rs
-      if n == 1 then rs = rs[1] end
-      if srv_err then return nil, srv_err, rs, n end
-      return rs, n
+    local n = #rs
+    if n == 1 then rs = rs[1] end
+    if srv_err then return nil, srv_err, rs, n end
+    return rs, n
+  end
+
+  function cli:execute(sql, values)
+    rs, srv_err = {}
+
+    reader:reset(prepare:reset())
+    prepare:start('', sql, nil)
+
+    while not reader:done() do
+      local data = assert(cnn:receive"*r")
+      reader:append(data)
     end
 
     if srv_err then return nil, srv_err end
+
+    reader:reset(execute:reset())
+    execute:start('', nil, values)
+
+    while not reader:done() do
+      local data = assert(cnn:receive"*r")
+      reader:append(data)
+    end
+
+    rs = rs[1]
+    if srv_err then return nil, srv_err, rs, n end
+
+    rs.partial = nil
+    return rs, 1
   end
 
   return cli

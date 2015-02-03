@@ -1,7 +1,9 @@
 local ut     = require "lluv.utils"
 local struct = require "struct"
 
-local pp = require "pp"
+local unpack = unpack or table.unpack
+
+local function append(t, v) t[#t+1] = v return t end
 
 local VER = {
   ["3.0"]     = 196608;
@@ -113,6 +115,67 @@ end
 MessageEncoder.CancelRequest = function(pid, key)
   local magic = 80877102
   return pack("F", struct.pack(">I4I4I4", magic, pid, key))
+end
+
+MessageEncoder.Parse = function(name, sql, types)
+  local data = name .. '\0' .. sql .. '\0'
+  if types then
+    data = data .. struct.pack(
+      ">I2" .. ("I4"):rep(#types),
+      #types, unpack(types)
+    )
+  else
+    data = data .. struct.pack(">I2", 0)
+  end
+
+  return pack("P", data)
+end
+
+MessageEncoder.Describe = function(typ, name)
+  assert(typ == 'S' or typ == 'P')
+  return pack('D', typ .. name .. '\0')
+end
+
+MessageEncoder.Sync = function(name, value)
+  return pack("S", "")
+end
+
+MessageEncoder.Bind = function(name, portal, formats, values)
+  local buf = {name .. '\0' .. portal .. '\0'}
+
+  if formats then
+    append(buf, struct.pack(">I2", #formats))
+    for i = 1, #formats do
+      append(buf, struct.pack(">I2", formats[i]))
+    end
+  else
+    append(buf, struct.pack(">I2", 0))
+  end
+
+  if values then
+    append(buf, struct.pack(">I2", #values))
+    for i = 1, #values do
+      v = values[i]
+      assert(type(v) == 'string')
+      append(buf, struct.pack(">I4", #v) .. v)
+    end
+  else
+    append(buf, struct.pack(">I2", 0))
+  end
+
+  append(buf, struct.pack(">I2", 0)) -- text mode(result)
+
+  return pack('B', table.concat(buf))
+end
+
+MessageEncoder.Execute = function(name, rows)
+  local data = name .. '\0' .. struct.pack(">I4", rows or 0)
+  return pack('E', data)
+end
+
+MessageEncoder.Close = function(typ, name)
+  assert(typ == 'S' or typ == 'P')
+  return pack('C', typ .. name .. '\0')
 end
 
 end
@@ -272,6 +335,21 @@ end
 function MessageDecoder.NotificationResponse(data)
   local pid, name, payload = struct.unpack('>I4ss', data)
   return pid, name, payload
+end
+
+function MessageDecoder.ParseComplete(data)
+  assert(#data == 0)
+  return data
+end
+
+function MessageDecoder.ParameterDescription(data)
+  local n, pos = struct.unpack(">I2", data)
+  local t = {}
+  for i = 1, n do
+    local typ typ, pos = struct.unpack(">I2", data, pos)
+    append(t, typ)
+  end
+  return t
 end
 
 end

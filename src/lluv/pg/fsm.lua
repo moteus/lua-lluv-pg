@@ -7,6 +7,13 @@ local decode_type    = require "lluv.pg.msg".decode_type
 
 local function append(t, v) t[#t + 1] = v return t end
 
+local HEX = function(s)
+  return (s:gsub("%s*",""):gsub("([0-9A-Fa-f][0-9A-Fa-f])", function(f)
+    f = tonumber(f, 16)
+    return string.char(f)
+  end))
+end
+
 local ERROR_PG = "PostgreSQL" -- error category
 
 local PGServerError = ut.class() do
@@ -174,6 +181,38 @@ local function on_terminate(fsm, event, ctx, data)
   ctx:on_terminate()
 end
 
+local function on_new_recordset(self, event, ctx, data)
+  local rows, n = MessageDecoder.RowDescription(data)
+  local cols, typs = {}, {}
+
+  for i, desc in ipairs(rows) do
+    local ltyp = decode_type(desc[2])
+    cols[#cols + 1] = desc[1]
+    typs[#typs + 1] = ltyp
+  end
+
+  ctx:on_new_rs{cols, typs}
+end
+
+local function on_data_row(self, event, ctx, data)
+  local row = MessageDecoder.DataRow(data)
+  ctx:on_row(row)
+end
+
+local function on_close_recordset(self, event, ctx, data)
+  local cmd, rows = MessageDecoder.CommandComplete(data)
+  ctx:on_close_rs(rows)
+end
+
+local function on_empty_recordset(self, event, ctx, data)
+  ctx:on_close_rs(0)
+end
+
+local function on_execute(self, event, ctx, data)
+  local cmd, rows = MessageDecoder.CommandComplete(data)
+  ctx:on_exec(rows)
+end
+
 local Base = ut.class() do
 
 function Base:reset()
@@ -323,37 +362,15 @@ fsm:action("decode_status",   on_status)
 
 fsm:action("decode_notify",   on_notify)
 
-fsm:action("new_rs",          function(self, event, ctx, data)
-  local rows, n = MessageDecoder.RowDescription(data)
-  local cols, typs = {}, {}
+fsm:action("new_rs",          on_new_recordset)
 
-  for i, desc in ipairs(rows) do
-    local ltyp = decode_type(desc[2])
-    cols[#cols + 1] = desc[1]
-    typs[#typs + 1] = ltyp
-  end
+fsm:action("decode_row",      on_data_row)
 
-  ctx:on_new_rs{cols, typs}
-end)
+fsm:action("close_rs",        on_close_recordset)
 
-fsm:action("decode_row",      function(self, event, ctx, data)
-  local row = MessageDecoder.DataRow(data)
-  ctx:on_row(row)
-end)
+fsm:action("exec_complite",   on_execute)
 
-fsm:action("close_rs",        function(self, event, ctx, data)
-  local cmd, rows = MessageDecoder.CommandComplete(data)
-  ctx:on_close_rs(rows)
-end)
-
-fsm:action("exec_complite",   function(self, event, ctx, data)
-  local cmd, rows = MessageDecoder.CommandComplete(data)
-  ctx:on_exec(rows)
-end)
-
-fsm:action("empty",           function(self, event, ctx, data)
-  ctx:on_close_rs(0)
-end)
+fsm:action("empty",           on_empty_recordset)
 
 fsm:state("wait_response", {
   ['*']            = {"protocol_error",  "terminate"};
@@ -363,8 +380,8 @@ fsm:state("wait_response", {
   ErrorResponse    = {"server_error",  "error_recived"};
   ReadyForQuery    = {nil,             "ready"        };
 
-  EmptyQueryResponse = {};
-  CommandComplete    = {"exec_complite"};
+  EmptyQueryResponse = {"empty"         };
+  CommandComplete    = {"exec_complite" };
 
   RowDescription   = {"new_rs",          "wait_row_data" };
 })
@@ -380,8 +397,10 @@ fsm:state("wait_row_data",{
 })
 
 fsm:state("error_recived",{
-  ['*']         = {};
-  ReadyForQuery = { nil, "ready" };
+  ['*']            = {};
+  ParameterStatus  = {"decode_status"                    };
+  NoticeResponse   = {"decode_notice"                    };
+  ReadyForQuery    = {nil,               "ready"         };
 })
 
 fsm:state("ready", on_ready)
@@ -431,6 +450,148 @@ function Idle:__init()
 end
 
 function Idle:start()
+  self._fsm:start()
+end
+
+end
+
+local Prepare = ut.class(Base) do
+local fsm = FSM.new("wait")
+
+fsm:action("decode_status",  on_status)
+
+fsm:action("decode_notify",  on_notify)
+
+fsm:action("server_error",   on_server_error)
+
+fsm:action("protocol_error", on_protocol_error)
+
+fsm:action("new_rs",         on_new_recordset)
+
+fsm:action("decode_params",  function(self, event, ctx, data)
+  local typs = MessageDecoder.ParameterDescription(data)
+  ctx:on_params(typs)
+end)
+
+fsm:state("wait", {
+  ['*']                 = {"protocol_error",  "terminate"     };
+  ParameterStatus       = {"decode_status"                    };
+  NotificationResponse  = {"decode_notify"                    };
+  ParameterDescription  = {"decode_params"                    };
+  RowDescription        = {"new_rs"                           };
+
+  ErrorResponse         = {"server_error",    "wait_ready"    };
+  ParseComplete         = {nil,               "wait_ready"    };
+})
+
+fsm:state("wait_ready", {
+  ['*']                 = {"protocol_error" };
+  ErrorResponse         = {"server_error"   };
+  ParameterStatus       = {"decode_status"  };
+  NotificationResponse  = {"decode_notify"  };
+  ParameterDescription  = {"decode_params"  };
+  RowDescription        = {"new_rs"         };
+
+  ReadyForQuery         = {nil, "ready"};
+})
+
+fsm:state("ready", on_ready)
+
+fsm:state("terminate", on_terminate)
+
+function Prepare:__init()
+  self._fsm = fsm:clone():reset()
+  return self
+end
+
+function Prepare:start(name, sql, opt)
+  self:on_send(MessageEncoder.Parse(name, sql, opt))
+  self:on_send(MessageEncoder.Describe("S", name))
+  self:on_send(MessageEncoder.Sync())
+
+  self._fsm:start()
+end
+
+function Prepare:on_new_rs() end
+
+function Prepare:on_params() end
+
+end
+
+local Execute = ut.class(Base) do
+local fsm = FSM.new("wait")
+
+fsm:action("decode_status",  on_status)
+
+fsm:action("decode_notify",  on_notify)
+
+fsm:action("server_error",   on_server_error)
+
+fsm:action("protocol_error", on_protocol_error)
+
+fsm:action("decode_row",     on_data_row)
+
+fsm:action("close_rs",       on_close_recordset)
+
+fsm:action("exec_complite",  on_execute)
+
+fsm:action("empty",          on_empty_recordset)
+
+fsm:state("wait", {
+  ['*']              = {"protocol_error", "terminate"     };
+  ErrorResponse      = {"server_error",   "wait_ready"    };
+  ParameterStatus    = {"decode_status"                   };
+  NoticeResponse     = {"decode_notice"                   };
+
+  BindComplete       = {nil,              "bound"         };
+})
+
+fsm:state("bound", {
+  ['*']              = {"protocol_error", "terminate"     };
+  ErrorResponse      = {"server_error",   "wait_ready"    };
+  ParameterStatus    = {"decode_status"                   };
+  NoticeResponse     = {"decode_notice"                   };
+
+  DataRow            = {"decode_row",     "wait_row_data" };
+  EmptyQueryResponse = {"empty",          "wait_ready"    };
+  CommandComplete    = {"exec_complite",  "wait_ready"    };
+})
+
+fsm:state("wait_row_data",{
+  ['*']              = {"protocol_error", "terminate"     };
+  ErrorResponse      = {"server_error",   "wait_ready"    };
+  ParameterStatus    = {"decode_status"                   };
+  NoticeResponse     = {"decode_notice"                   };
+
+  DataRow            = {"decode_row"                      };
+  CommandComplete    = {"close_rs",       "wait_ready"    };
+})
+
+fsm:state("wait_ready", {
+  ['*']                 = {"protocol_error" };
+  ErrorResponse         = {"server_error"   };
+  ParameterStatus       = {"decode_status"  };
+  NotificationResponse  = {"decode_notify"  };
+
+  CloseComplete         = {                 };
+  ReadyForQuery         = {nil,     "ready" };
+})
+
+fsm:state("ready", on_ready)
+
+fsm:state("terminate", on_terminate)
+
+function Execute:__init()
+  self._fsm = fsm:clone():reset()
+  return self
+end
+
+function Execute:start(name, formats, values)
+  self:on_send(MessageEncoder.Bind(name, name, formats, values))
+  self:on_send(MessageEncoder.Execute(name))
+  self:on_send(MessageEncoder.Close("P", name))
+  self:on_send(MessageEncoder.Sync())
+
   self._fsm:start()
 end
 
@@ -510,6 +671,8 @@ return{
   Setup         = Setup;
   SimpleQuery   = SimpleQuery;
   Idle          = Idle;
+  Prepare       = Prepare;
+  Execute       = Execute;
 
   MessageReader = MessageReader;
   FSMReader     = FSMReader;
