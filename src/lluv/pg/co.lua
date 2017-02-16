@@ -23,6 +23,7 @@ local function NewPG(cfg)
   local rs, rows_affected, col
   local host = cfg.host or '127.0.0.1'
   local port = cfg.port or 5432
+  local txn  = 'I'
   local terminated = false
 
   local setup = Setup.new() do
@@ -39,7 +40,7 @@ local function NewPG(cfg)
 
   function setup:on_backend_key(pid, key) bkey.pid, bkey.key = pid, key end
 
-  function setup:on_ready() end
+  function setup:on_ready(status) txn = status end
 
   function setup:on_terminate()
     terminated = true

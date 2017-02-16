@@ -91,7 +91,7 @@ function PGServerError:__tostring()
   local cno, cname = self:class()
 
   append(str, F("[PostgreSQL][%s][%s]%s", t.S, t.C, t.M))
-  if t.D then append(str, t.D)                 end
+  if t.D then append(str, t.D)                             end
               append(str, F("Class: %s",           cname))
   if t.H then append(str, F("Hint: %s",              t.H)) end
   if t.P then append(str, F("Position: %s",          t.P)) end
@@ -130,6 +130,8 @@ function PGProtoError:msg()
   return string.format("Unexpected message `%s` in state `%s`",
     self._event, self._state)
 end
+
+function PGServerError:cat() return ERROR_PG end
 
 function PGProtoError:ext() return self._ext end
 
@@ -173,7 +175,8 @@ local function on_notify(fsm, event, ctx, data)
 end
 
 local function on_ready(fsm, event, ctx, data)
-  ctx:on_ready()
+  local status = MessageDecoder.ReadyForQuery(data)
+  ctx:on_ready(status)
 end
 
 local function on_terminate(fsm, event, ctx, data)
@@ -263,6 +266,8 @@ end
 local function InitFSM(...)
   local fsm = FSM.new(...)
 
+  -- ACTIONS
+
   fsm:action("server_error",    on_server_error)
 
   fsm:action("protocol_error",  on_protocol_error)
@@ -282,6 +287,12 @@ local function InitFSM(...)
   fsm:action("empty_rs",        on_empty_recordset)
 
   fsm:action("exec_complite",   on_execute)
+
+  -- STATES
+
+  fsm:state("ready",            on_ready)
+
+  fsm:state("terminate",        on_terminate)
 
   return fsm
 end
@@ -354,10 +365,6 @@ fsm:state("auth_done", S("terminate", {
   ReadyForQuery         = {nil,               "ready"    };
 }))
 
-fsm:state("ready", on_ready)
-
-fsm:state("terminate", on_terminate)
-
 function Setup:__init()
   self._fsm = fsm:clone():reset()
   return self
@@ -396,10 +403,6 @@ fsm:state("error_recived", S("error_recived", {
   ReadyForQuery    = {nil,              "ready"         };
 }))
 
-fsm:state("ready", on_ready)
-
-fsm:state("terminate", on_terminate)
-
 function SimpleQuery:__init()
   self._fsm = fsm:clone():reset()
   return self
@@ -425,8 +428,6 @@ local Idle = ut.class(Base) do
 local fsm = InitFSM("wait")
 
 fsm:state("wait", S{})
-
-fsm:state("terminate", on_terminate)
 
 function Idle:__init()
   self._fsm = fsm:clone():reset()
@@ -461,10 +462,6 @@ fsm:state("wait_ready", S("wait_ready",{
 
   ReadyForQuery         = {nil,           "ready" };
 }))
-
-fsm:state("ready", on_ready)
-
-fsm:state("terminate", on_terminate)
 
 function Prepare:__init()
   self._fsm = fsm:clone():reset()
@@ -509,19 +506,15 @@ fsm:state("wait_ready", S("wait_ready", {
   ReadyForQuery         = {nil,     "ready" };
 }))
 
-fsm:state("ready", on_ready)
-
-fsm:state("terminate", on_terminate)
-
 function Execute:__init()
   self._fsm = fsm:clone():reset()
   return self
 end
 
-function Execute:start(name, formats, values)
-  self:on_send(MessageEncoder.Bind(name, name, formats, values))
-  self:on_send(MessageEncoder.Execute(name))
-  self:on_send(MessageEncoder.Close("P", name))
+function Execute:start(portal, name, formats, values, rows)
+  self:on_send(MessageEncoder.Bind(portal, name, formats, values))
+  self:on_send(MessageEncoder.Execute(portal, rows))
+  if portal ~= '' then self:on_send(MessageEncoder.Close("P", name)) end
   self:on_send(MessageEncoder.Sync())
 
   self._fsm:start()
@@ -533,21 +526,25 @@ local MessageReader = ut.class() do
 
 function MessageReader:__init()
   self._buf = ut.Buffer.new()
+  self._typ = nil
+  self._len = nil
+
   return self
 end
 
-local function next_msg(buf)
-  local header = buf:read(5)
-  if not header then return end
+local function next_msg(self)
+  if not self._typ then
+    local header = self._buf:read(5)
+    if not header then return end
 
-  local typ, len = struct.unpack(">c1I4", header)
-  assert(len >= 4, string.format("%q", typ) .. "/" .. tostring(len))
-
-  local data = buf:read(len - 4)
-  if not data then
-    buf:prepend(buf)
-    return
+    self._typ, self._len = struct.unpack(">c1I4", header)
+    assert(self._len >= 4, string.format("%q", self._typ) .. "/" .. tostring(self._len))
   end
+
+  local data, typ = self._buf:read(self._len - 4), self._typ
+  if not data then return end
+
+  self._typ, self._len = nil
 
   return typ, data
 end
@@ -555,7 +552,7 @@ end
 function MessageReader:append(data)
   self._buf:append(data)
   while true do
-    local typ, msg = next_msg(self._buf)
+    local typ, msg = next_msg(self)
     if not typ then break end
     local ret = self:on_message(typ, msg)
     if not ret then break end
@@ -564,7 +561,7 @@ end
 
 function MessageReader:close()
   self._buf:reset()
-  self._buf = nil
+  self._buf, self._typ, self._len = nil
 end
 
 end

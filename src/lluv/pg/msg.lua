@@ -140,8 +140,8 @@ MessageEncoder.Sync = function(name, value)
   return pack("S", "")
 end
 
-MessageEncoder.Bind = function(name, portal, formats, values)
-  local buf = {name .. '\0' .. portal .. '\0'}
+MessageEncoder.Bind = function(portal, name, formats, values)
+  local buf = {portal .. '\0' .. name .. '\0'}
 
   if formats then
     append(buf, struct.pack(">I2", #formats))
@@ -168,8 +168,8 @@ MessageEncoder.Bind = function(name, portal, formats, values)
   return pack('B', table.concat(buf))
 end
 
-MessageEncoder.Execute = function(name, rows)
-  local data = name .. '\0' .. struct.pack(">I4", rows or 0)
+MessageEncoder.Execute = function(portal, rows)
+  local data = portal .. '\0' .. struct.pack(">I4", rows or 0)
   return pack('E', data)
 end
 
@@ -250,6 +250,11 @@ function MessageDecoder.ErrorResponse(data)
   assert(res.C, "SQLSTATE required")
   assert(res.M, "Message  required")
   return res
+end
+
+function MessageDecoder.ReadyForQuery(data)
+  assert(#data == 1)
+  return data
 end
 
 function MessageDecoder.AuthenticationMD5Password(data)
