@@ -508,6 +508,7 @@ fsm:state("describing", S("closing", {
 }))
 
 fsm:state("fetching", S("closing", {
+  DataRow            = {"decode_row"                          };
   EmptyQueryResponse = {"empty_rs",           "closing"       };
   PortalSuspended    = {"suspended",          "closing"       };
   CommandComplete    = {"close_rs",           "closing"       };
