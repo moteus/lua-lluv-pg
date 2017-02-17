@@ -1,7 +1,7 @@
-local uv     = require "lluv"
-local socket = require "lluv.luasocket"
-local ut     = require "lluv.utils"
-
+local uv            = require "lluv"
+local socket        = require "lluv.luasocket"
+local ut            = require "lluv.utils"
+local EventEmitter  = require "EventEmitter"
 local Setup         = require "lluv.pg.fsm".Setup
 local SimpleQuery   = require "lluv.pg.fsm".SimpleQuery
 local MessageReader = require "lluv.pg.fsm".MessageReader
@@ -33,6 +33,7 @@ local Connection = ut.class() do
 
 function Connection:__init(cfg)
   self._ready   = false
+  self._ee      = EventEmitter.new{self=self}
   self._status  = {}
   self._bkey    = {}
   self._reader  = MessageReader.new()
@@ -60,21 +61,22 @@ function Connection:__init(cfg)
 
   function this._on_send(fsm, header, msg)            this:send(header, msg)              end
 
-  function this._on_protocol_error(fsm, err)          this._last_error = err              end
+  function this._on_protocol_error(fsm, err)          this._last_error = err; this._ee:emit('error', err) end
 
-  function this._on_error(fsm, err)                   this._last_error = err              end
+  function this._on_error(fsm, err)                   this._last_error = err; this._ee:emit('error', err) end
 
   function this._on_status(fsm, key, value)           this._status[key] = value           end
 
   function this._on_backend_key(fsm, pid, key, value) this._bkey = {pid = pid, key = key} end
 
-  function this._on_notice(fsm, note)                 this:on_notice(note)                end
+  function this._on_notice(fsm, note)                 this:on_notice(note); this._ee:emit('notice', note) end
 
-  function this._on_notify(fsm, pid, name, payload)   this:on_notify(pid, name, payload)  end
+  function this._on_notify(fsm, pid, name, payload)   this:on_notify(pid, name, payload); this._ee:emit('notify', pid, name, payload) end
 
   function this._on_terminate(fsm)
     local callback = this._active.callback
     if callback then
+      self:_reset_active_state()
       uv.defer(callback, this, this._last_error, rs)
     end
     uv.defer(this.close, this, this._last_error)
@@ -91,10 +93,21 @@ function Connection:__init(cfg)
     return true
   end
 
+  function this._on_write_error(cli, err)
+    if err then 
+      if err ~= EOF then
+        self._ee:emit('error', err)
+      end
+      self:close(err)
+    end
+  end
+
+  self._on_write_handler = on_write_error
   self._setup = Setup.new()
   self._setup.on_send           = this._on_send
   self._setup.on_error          = this._on_error
   self._setup.on_protocol_error = this._on_protocol_error
+  self._setup.on_terminate      = this._on_terminate
   self._setup.on_status         = this._on_status
   self._setup.on_backend_key    = this._on_backend_key
   self._setup.on_notice         = this._on_notice
@@ -103,12 +116,10 @@ function Connection:__init(cfg)
     return this._pg_opt.user, this._cnn_opt.password
   end
   self._setup.on_ready          = function()
-    self._ready = true
+    this._ready = true
+    this._ee:emit('ready')
     call_q(this._open_q, this, nil, true)
     uv.defer(this._next_query, this)
-  end
-  self._setup.on_terminate      = function()
-    this:close(this._last_error)
   end
 
   self._idle = Idle.new()
@@ -252,7 +263,12 @@ function Connection:connect(cb)
   local host, port = self._cnn_opt.host, self._cnn_opt.port
 
   self._cli = uv.tcp():connect(host, port, function(cli, err)
-    if err then return self:close(err) end
+    if err then
+      self._ee:emit('error', err)
+      return self:close(err)
+    end
+
+    self._ee:emit('open')
 
     self:_start_read()
 
@@ -403,6 +419,8 @@ function Connection:close(err, cb)
       end
 
       call_q(close_q, self, err)
+
+      self._ee:emit('close')
     end)
   end
 
@@ -414,8 +432,28 @@ function Connection:connected()
 end
 
 function Connection:send(header, data)
-  -- print("SEND EVENT:", header, data)
-  return self._cli:write{header, data}
+  self._ee:emit('send', header, data)
+  return self._cli:write({header, data}, self._on_write_error)
+end
+
+function Connection:on(...)
+  return self._ee:on(...)
+end
+
+function Connection:off(...)
+  return self._ee:off(...)
+end
+
+function Connection:onAny(...)
+  return self._ee:onAny(...)
+end
+
+function Connection:offAny(...)
+  return self._ee:offAny(...)
+end
+
+function Connection:removeAllListeners(...)
+  return self._ee:removeAllListeners(...)
 end
 
 end
