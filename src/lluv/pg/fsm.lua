@@ -211,6 +211,11 @@ local function on_empty_recordset(self, event, ctx, data)
   ctx:on_close_rs(0)
 end
 
+local function on_portal_suspended(self, event, ctx, data)
+  MessageDecoder.PortalSuspended(data)
+  ctx:on_suspended()
+end
+
 local function on_execute(self, event, ctx, data)
   local cmd, rows = MessageDecoder.CommandComplete(data)
   ctx:on_exec(rows)
@@ -288,6 +293,8 @@ local function InitFSM(...)
   fsm:action("empty_rs",        on_empty_recordset)
 
   fsm:action("exec_complite",   on_execute)
+
+  fsm:action("suspended",       on_portal_suspended)
 
   -- STATES
 
@@ -451,17 +458,14 @@ fsm:action("decode_params",  function(self, event, ctx, data)
 end)
 
 fsm:state("wait", S("wait_ready", {
-  ParameterDescription  = {"decode_params"                    };
-  RowDescription        = {"new_rs"                           };
-
-  ParseComplete         = {nil,               "wait_ready"    };
+  ParseComplete         = {nil,               "describe"      };
 }))
 
-fsm:state("wait_ready", S("wait_ready",{
-  ParameterDescription  = {"decode_params"        };
-  RowDescription        = {"new_rs"               };
-
-  ReadyForQuery         = {nil,           "ready" };
+fsm:state("describe", S("describe", {
+  ParameterDescription  = {"decode_params"                    };
+  RowDescription        = {"new_rs"                           };
+  NoData                = {};
+  ReadyForQuery         = {nil,               "ready"         };
 }))
 
 function Prepare:__init()
@@ -492,21 +496,21 @@ fsm:state("wait", S("wait_ready", {
 }))
 
 fsm:state("binding", S("closing", { "send_bind_and_execute",
-  BindComplete       = {nil,          "executing"         };
+  BindComplete          = {nil,               "describing"    };
 }))
 
--- portal exists so we should close it in any case
-fsm:state("executing", S("closing", {
-  DataRow            = {"decode_row",     "wait_row_data" };
-  EmptyQueryResponse = {"empty_rs",       "closing"       };
-  PortalSuspended    = {"empty_rs",       "closing"       };
-  CommandComplete    = {"exec_complite",  "closing"       };
+fsm:state("describing", S("closing", {
+  RowDescription     = {"new_rs",             "fetching"      };
+  NoData             = {};
+
+  -- Execute responses
+  CommandComplete    = {"exec_complite",      "closing"       };
 }))
 
-fsm:state("wait_row_data", S("closing", {
-  DataRow            = {"decode_row"                      };
-  PortalSuspended    = {"close_rs",       "closing"       };
-  CommandComplete    = {"close_rs",       "closing"    };
+fsm:state("fetching", S("closing", {
+  EmptyQueryResponse = {"empty_rs",           "closing"       };
+  PortalSuspended    = {"suspended",          "closing"       };
+  CommandComplete    = {"close_rs",           "closing"       };
 }))
 
 fsm:state("closing", S("wait_ready", {
@@ -514,6 +518,7 @@ fsm:state("closing", S("wait_ready", {
 }))
 
 fsm:state("wait_ready", S("wait_ready", {
+  CloseComplete         = {};
   ReadyForQuery         = {nil,     "ready" };
 }))
 
@@ -524,6 +529,10 @@ fsm:action("send_bind_and_execute", function(self, event, ctx, data)
 
   ctx:on_send(
     MessageEncoder.Bind(ctx._portal, ctx._name, ctx._formats, ctx._values)
+  )
+
+  ctx:on_send(
+    MessageEncoder.Describe("P", ctx._portal)
   )
 
   ctx:on_send(

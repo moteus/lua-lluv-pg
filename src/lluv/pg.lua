@@ -228,7 +228,7 @@ function Connection:_next_simple_query(sql, cb)
 
   function self._fsm:on_close_rs(rows) end
 
-  function self._fsm:on_exec(rows) append(rs, rows) end
+  function self._fsm:on_exec(rows) append(rs, {rows}) end
 
   function self._fsm:on_ready()
     uv.defer(cb, this, this._last_error, rs)
@@ -245,7 +245,7 @@ end
 
 function Connection:_next_extended_query(sql, params, cb)
   local statement_name = ''
-  self:_prepare_query(statement_name, sql, function(self, err, rs, params_types)
+  self:_prepare_query(statement_name, sql, function(self, err, rs, formats)
     if err then
       uv.defer(self._next_query, self)
       return uv.defer(cb, self, err)
@@ -253,7 +253,6 @@ function Connection:_next_extended_query(sql, params, cb)
 
     return self:_execute_query(statement_name, params, function(self, err, rows)
       uv.defer(self._next_query, self)
-      if rows and not err then rows.header = rs[#rs].header end
       cb(self, err, rows)
     end)
   end)
@@ -264,11 +263,9 @@ function Connection:_prepare_query(name, sql, cb)
 
   local this, rs, params = self, {}
 
-  function self._fsm:on_new_rs(desc) append(rs, {header = desc}) end
+  function self._fsm:on_new_rs(desc) rs = desc end
 
-  function self._fsm:on_params(params_types)
-    params = params_types
-  end
+  function self._fsm:on_params(params_types) params = params_types end
 
   function self._fsm:on_ready()
     uv.defer(cb, this, this._last_error, rs, params)
@@ -289,11 +286,15 @@ function Connection:_execute_query(name, params, cb)
 
   local this, rs = self, {}
 
-  function self._fsm:on_row(row)
-    append(rs, row)
-  end
+  function self._fsm:on_new_rs(desc) rs.header = desc end
+
+  function self._fsm:on_row(row) append(rs, row) end
 
   function self._fsm:on_close_rs(rows) end
+
+  function self._fsm:on_suspended() rs.suspended = true end
+
+  function self._fsm:on_exec(rows) append(rs, rows) end
 
   function self._fsm:on_ready()
     uv.defer(this._next_query, self)

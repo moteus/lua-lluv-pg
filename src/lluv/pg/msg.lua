@@ -347,6 +347,11 @@ function MessageDecoder.ParseComplete(data)
   return data
 end
 
+function MessageDecoder.PortalSuspended(data)
+  assert(#data == 0)
+  return data
+end
+
 function MessageDecoder.ParameterDescription(data)
   local n, pos = struct.unpack(">I2", data)
   local t = {}
