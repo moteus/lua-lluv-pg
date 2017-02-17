@@ -169,6 +169,9 @@ function Connection:__init(cfg)
   function self._query:on_ready()
     local callback  = this._active.callback
     local resultset = this._active.resultset
+
+    this:_reset_active_state()
+
     uv.defer(callback, this, this._last_error, resultset)
     uv.defer(this._next_query, this)
   end
@@ -187,6 +190,9 @@ function Connection:__init(cfg)
     local params    = this._active.params
     local callback  = this._active.callback
     local resultset = this._active.resultset
+
+    this:_reset_active_state()
+
     uv.defer(callback, this, this._last_error, resultset, params)
   end
 
@@ -217,6 +223,9 @@ function Connection:__init(cfg)
   function self._execute:on_ready()
     local callback  = this._active.callback
     local resultset = this._active.resultset
+
+    this:_reset_active_state()
+
     uv.defer(callback, this, this._last_error, resultset)
     uv.defer(this._next_query, this)
   end
@@ -269,6 +278,10 @@ function Connection:cancel(cb)
   end)
 end
 
+function Connection:_reset_active_state()
+  self._active.params, self._active.resultset, self._active.callback = nil
+end
+
 function Connection:_start_read()
   self._cli:start_read(function(cli, err, data)
     if err then return self:close(err) end
@@ -283,7 +296,7 @@ function Connection:query(...)
     return uv.defer(cb, self, ENOTCONN)
   end
 
-  self._queue:push{...}
+  self._queue:push{'query', ...}
 
   return self:_next_query()
 end
@@ -299,13 +312,16 @@ function Connection:_next_query()
   local args = self._queue:pop()
   if not args then return end
 
-  local sql, params, cb = args[1], args[2], args[3]
-  if is_callable(params) then
-    cb, params = params
-    return self:_next_simple_query(sql, cb)
-  end
+  local action = args[1]
 
-  return self:_next_extended_query(sql, params, cb)
+  if action == 'query' then
+    sql, params, cb = args[2], args[3], args[4]
+    if is_callable(params) then
+      cb, params = params
+      return self:_next_simple_query(sql, cb)
+    end
+    return self:_next_extended_query(sql, params, cb)
+  end
 end
 
 function Connection:_next_simple_query(sql, cb)
@@ -373,7 +389,7 @@ function Connection:close(err, cb)
       local active_callback = self._active.callback
 
       self._cli, self._open_q, self._close_q, self._queue = nil
-      self._active.params, self._active.resultset, self._active.callback = nil
+      self:_reset_active_state()
 
       if active_callback then active_callback(self, err or EOF) end
 
@@ -382,8 +398,8 @@ function Connection:close(err, cb)
       while true do
         local args = q:pop()
         if not args then break end
-        local cb = is_callable(args[3]) or is_callable(args[2])
-        cb(self, err)
+        local cb = is_callable(args[#args])
+        cb(self, err or EOF)
       end
 
       call_q(close_q, self, err)
