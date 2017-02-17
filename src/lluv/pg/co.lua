@@ -156,7 +156,7 @@ local function NewPG(cfg)
     if srv_err then return nil, srv_err end
 
     reader:reset(execute:reset())
-    execute:start('', nil, values)
+    execute:start('', '', nil, values, 0)
 
     while not reader:done() do
       local data = assert(cnn:receive"*r")
