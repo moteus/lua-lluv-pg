@@ -39,6 +39,11 @@ function Connection:__init(cfg)
   self._open_q  = nil
   self._close_q = nil
   self._queue   = nil
+  self._active  = {
+    resultset = nil;
+    callback  = nil;
+    params    = nil;
+  }
 
   self._pg_opt = {
     database = assert(cfg.database);
@@ -66,6 +71,14 @@ function Connection:__init(cfg)
   function this._on_notice(fsm, note)                 this:on_notice(note)                end
 
   function this._on_notify(fsm, pid, name, payload)   this:on_notify(pid, name, payload)  end
+
+  function this._on_terminate(fsm)
+    local callback = this._active.callback
+    if callback then
+      uv.defer(callback, this, this._last_error, rs)
+    end
+    uv.defer(this.close, this, this._last_error)
+  end
 
   function self._reader:on_message(typ, msg)
     if not this._fsm then return true end
@@ -101,7 +114,7 @@ function Connection:__init(cfg)
   self._idle = Idle.new()
   self._idle.on_send           = this._on_send
   self._idle.on_protocol_error = this._on_protocol_error
-  self._idle.on_terminate      = function() this:close() end
+  self._idle.on_terminate      = this._on_terminate
   self._idle.on_status         = this._on_status
   self._idle.on_notice         = this._on_notice
   self._idle.on_notify         = this._on_notify
@@ -110,6 +123,7 @@ function Connection:__init(cfg)
   self._query.on_send           = this._on_send
   self._query.on_error          = this._on_error
   self._query.on_protocol_error = this._on_protocol_error
+  self._query.on_terminate      = this._on_terminate
   self._query.on_status         = this._on_status
   self._query.on_backend_key    = this._on_backend_key
   self._query.on_notice         = this._on_notice
@@ -119,6 +133,7 @@ function Connection:__init(cfg)
   self._prepare.on_send           = this._on_send
   self._prepare.on_error          = this._on_error
   self._prepare.on_protocol_error = this._on_protocol_error
+  self._prepare.on_terminate      = this._on_terminate
   self._prepare.on_status         = this._on_status
   self._prepare.on_backend_key    = this._on_backend_key
   self._prepare.on_notice         = this._on_notice
@@ -128,10 +143,83 @@ function Connection:__init(cfg)
   self._execute.on_send           = this._on_send
   self._execute.on_error          = this._on_error
   self._execute.on_protocol_error = this._on_protocol_error
+  self._execute.on_terminate      = this._on_terminate
   self._execute.on_status         = this._on_status
   self._execute.on_backend_key    = this._on_backend_key
   self._execute.on_notice         = this._on_notice
   self._execute.on_notify         = this._on_notify
+
+  function self._query:on_exec(rows)
+    local resultset = this._active.resultset
+    append(resultset, {rows})
+  end
+
+  function self._query:on_new_rs(desc)
+    local resultset = this._active.resultset
+    append(resultset, {header = desc})
+  end
+
+  function self._query:on_row(row)
+    local resultset = this._active.resultset
+    append(resultset[#resultset], row)
+  end
+
+  function self._query:on_close_rs(rows) end
+
+  function self._query:on_ready()
+    local callback  = this._active.callback
+    local resultset = this._active.resultset
+    uv.defer(callback, this, this._last_error, resultset)
+    uv.defer(this._next_query, this)
+  end
+
+  ---------------------------------------------------------
+
+  function self._prepare:on_new_rs(desc)
+    this._active.resultset = desc
+  end
+
+  function self._prepare:on_params(params)
+    this._active.params = params
+  end
+
+  function self._prepare:on_ready()
+    local params    = this._active.params
+    local callback  = this._active.callback
+    local resultset = this._active.resultset
+    uv.defer(callback, this, this._last_error, resultset, params)
+  end
+
+  ---------------------------------------------------------
+
+  function self._execute:on_exec(rows)
+    local resultset = this._active.resultset
+    append(resultset, rows)
+  end
+
+  function self._execute:on_new_rs(desc)
+    local resultset = this._active.resultset
+    resultset.header = desc
+  end
+
+  function self._execute:on_row(row)
+    local resultset = this._active.resultset
+    append(resultset, row)
+  end
+
+  function self._execute:on_close_rs(rows) end
+
+  function self._execute:on_suspended()
+    local resultset = this._active.resultset
+    resultset.suspended = true
+  end
+
+  function self._execute:on_ready()
+    local callback  = this._active.callback
+    local resultset = this._active.resultset
+    uv.defer(callback, this, this._last_error, resultset)
+    uv.defer(this._next_query, this)
+  end
 
   return self
 end
@@ -223,25 +311,9 @@ end
 function Connection:_next_simple_query(sql, cb)
   self._fsm = self._query:reset()
 
-  local this, rs = self, {}
-
-  function self._fsm:on_new_rs(desc) append(rs, {header = desc}) end
-
-  function self._fsm:on_row(row) append(rs[#rs], row) end
-
-  function self._fsm:on_close_rs(rows) end
-
-  function self._fsm:on_exec(rows) append(rs, {rows}) end
-
-  function self._fsm:on_ready()
-    uv.defer(cb, this, this._last_error, rs)
-    uv.defer(this._next_query, this)
-  end
-
-  function self._fsm:on_terminate()
-    uv.defer(cb, this, this._last_error, rs)
-    this:close(this._last_error)
-  end
+  self._active.resultset = {}
+  self._active.callback  = cb
+  self._active.params    = nil
 
   self._fsm:start(sql)
 end
@@ -255,7 +327,6 @@ function Connection:_next_extended_query(sql, params, cb)
     end
 
     return self:_execute_query(statement_name, params, function(self, err, rows)
-      uv.defer(self._next_query, self)
       cb(self, err, rows)
     end)
   end)
@@ -264,20 +335,9 @@ end
 function Connection:_prepare_query(name, sql, cb)
   self._fsm = self._prepare:reset()
 
-  local this, rs, params = self, {}
-
-  function self._fsm:on_new_rs(desc) rs = desc end
-
-  function self._fsm:on_params(params_types) params = params_types end
-
-  function self._fsm:on_ready()
-    uv.defer(cb, this, this._last_error, rs, params)
-  end
-
-  function self._fsm:on_terminate()
-    uv.defer(cb, this, this._last_error, rs)
-    this:close(this._last_error)
-  end
+  self._active.callback  = cb
+  self._active.resultset = nil
+  self._active.params    = nil
 
   self._fsm:start(name, sql)
 end
@@ -287,27 +347,9 @@ function Connection:_execute_query(name, params, cb)
 
   self._fsm = self._execute:reset()
 
-  local this, rs = self, {}
-
-  function self._fsm:on_new_rs(desc) rs.header = desc end
-
-  function self._fsm:on_row(row) append(rs, row) end
-
-  function self._fsm:on_close_rs(rows) end
-
-  function self._fsm:on_suspended() rs.suspended = true end
-
-  function self._fsm:on_exec(rows) append(rs, rows) end
-
-  function self._fsm:on_ready()
-    uv.defer(this._next_query, self)
-    uv.defer(cb, this, this._last_error, rs, params)
-  end
-
-  function self._fsm:on_terminate()
-    uv.defer(cb, this, this._last_error, rs)
-    this:close(this._last_error)
-  end
+  self._active.callback  = cb
+  self._active.resultset = {}
+  self._active.params    = nil
 
   self._fsm:start(portal, name, nil, params, 0)
 end
@@ -328,7 +370,12 @@ function Connection:close(err, cb)
     self._cli:close(function()
       local open_q, close_q, q  = self._open_q, self._close_q, self._queue
 
+      local active_callback = self._active.callback
+
       self._cli, self._open_q, self._close_q, self._queue = nil
+      self._active.params, self._active.resultset, self._active.callback = nil
+
+      if active_callback then active_callback(self, err or EOF) end
 
       call_q(open_q, self, err or EOF)
 
