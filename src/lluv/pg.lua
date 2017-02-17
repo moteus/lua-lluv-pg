@@ -190,7 +190,10 @@ function Connection:_start_read()
 end
 
 function Connection:query(...)
-  if not self._cli then return uv.defer(self, ENOTCONN) end
+  if not self._cli then
+    local cb = is_callable(select(-1, ...))
+    return uv.defer(cb, self, ENOTCONN)
+  end
 
   self._queue:push{...}
 
