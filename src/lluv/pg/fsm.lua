@@ -225,6 +225,7 @@ end
 
 function Base:step(event, data)
   event, data = MessageDecoder.dispatch(event, data)
+  -- print("RECV EVENT:", event)
   return self._fsm:step(event, self, data)
 end
 
@@ -487,24 +488,58 @@ local Execute = ut.class(Base) do
 local fsm = InitFSM("wait")
 
 fsm:state("wait", S("wait_ready", {
-  BindComplete       = {nil,              "bound"         };
+  __start = {nil, "binding" }
 }))
 
-fsm:state("bound", S("wait_ready", {
+fsm:state("binding", S("closing", { "send_bind_and_execute",
+  BindComplete       = {nil,          "executing"         };
+}))
+
+-- portal exists so we should close it in any case
+fsm:state("executing", S("closing", {
   DataRow            = {"decode_row",     "wait_row_data" };
-  EmptyQueryResponse = {"empty_rs",       "wait_ready"    };
-  CommandComplete    = {"exec_complite",  "wait_ready"    };
+  EmptyQueryResponse = {"empty_rs",       "closing"       };
+  PortalSuspended    = {"empty_rs",       "closing"       };
+  CommandComplete    = {"exec_complite",  "closing"       };
 }))
 
-fsm:state("wait_row_data", S("wait_ready", {
+fsm:state("wait_row_data", S("closing", {
   DataRow            = {"decode_row"                      };
-  CommandComplete    = {"close_rs",       "wait_ready"    };
+  PortalSuspended    = {"close_rs",       "closing"       };
+  CommandComplete    = {"close_rs",       "closing"    };
+}))
+
+fsm:state("closing", S("wait_ready", {
+  ReadyForQuery         = {"send_close", "wait_ready" };
 }))
 
 fsm:state("wait_ready", S("wait_ready", {
-  CloseComplete         = {                 };
   ReadyForQuery         = {nil,     "ready" };
 }))
+
+fsm:action("send_bind_and_execute", function(self, event, ctx, data)
+  -- we have to send commands with sync
+  -- in other case tehre may be no response from server.
+  -- In my test without sync I did not get `BindComplete`
+
+  ctx:on_send(
+    MessageEncoder.Bind(ctx._portal, ctx._name, ctx._formats, ctx._values)
+  )
+
+  ctx:on_send(
+    MessageEncoder.Execute(ctx._portal, ctx._rows)
+  )
+
+  ctx:on_send(MessageEncoder.Sync())
+end)
+
+fsm:action("send_close", function(self, event, ctx, data)
+  if ctx._portal ~= '' then
+    ctx:on_send(MessageEncoder.Close("P", ctx._portal))
+  end
+  -- Send sync to get `ReadyForQuery`
+  ctx:on_send(MessageEncoder.Sync())
+end)
 
 function Execute:__init()
   self._fsm = fsm:clone():reset()
@@ -512,12 +547,14 @@ function Execute:__init()
 end
 
 function Execute:start(portal, name, formats, values, rows)
-  self:on_send(MessageEncoder.Bind(portal, name, formats, values))
-  self:on_send(MessageEncoder.Execute(portal, rows))
-  if portal ~= '' then self:on_send(MessageEncoder.Close("P", name)) end
-  self:on_send(MessageEncoder.Sync())
+  self._portal  = portal
+  self._rows    = rows
+  self._name    = name
+  self._formats = formats
+  self._values  = values
 
   self._fsm:start()
+  self._fsm:step('__start', self)
 end
 
 end

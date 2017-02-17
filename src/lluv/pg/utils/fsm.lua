@@ -62,6 +62,10 @@ function FSM:step(event, ...)
   -- transition
   self._state, self._state_name = state, state_name
 
+  action = state[1] and self._actions[state[1]]
+
+  if action then action(self, event, ...) end
+
   return self
 end
 

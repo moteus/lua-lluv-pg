@@ -244,13 +244,15 @@ function Connection:_next_simple_query(sql, cb)
 end
 
 function Connection:_next_extended_query(sql, params, cb)
-  self:_prepare_query('__prepare__', sql, function(self, err, rs, params_types)
+  local statement_name = ''
+  self:_prepare_query(statement_name, sql, function(self, err, rs, params_types)
     if err then
       uv.defer(self._next_query, self)
-      return uv.defer(cb, err)
+      return uv.defer(cb, self, err)
     end
 
-    return self:_execute_query('__prepare__', params, function(self, err, rows)
+    return self:_execute_query(statement_name, params, function(self, err, rows)
+      uv.defer(self._next_query, self)
       if rows and not err then rows.header = rs[#rs].header end
       cb(self, err, rows)
     end)
@@ -277,10 +279,12 @@ function Connection:_prepare_query(name, sql, cb)
     this:close(this._last_error)
   end
 
-  self._fsm:start('__prepare__', sql)
+  self._fsm:start(name, sql)
 end
 
 function Connection:_execute_query(name, params, cb)
+  local portal = ''
+
   self._fsm = self._execute:reset()
 
   local this, rs = self, {}
@@ -301,7 +305,7 @@ function Connection:_execute_query(name, params, cb)
     this:close(this._last_error)
   end
 
-  self._fsm:start('', name, nil, params, 0)
+  self._fsm:start(portal, name, nil, params, 0)
 end
 
 function Connection:close(err, cb)
@@ -327,7 +331,7 @@ function Connection:close(err, cb)
       while true do
         local args = q:pop()
         if not args then break end
-        local cb = args[2]
+        local cb = is_callable(args[3]) or is_callable(args[2])
         cb(self, err)
       end
 
@@ -343,6 +347,7 @@ function Connection:connected()
 end
 
 function Connection:send(header, data)
+  -- print("SEND EVENT:", header, data)
   return self._cli:write{header, data}
 end
 
