@@ -300,7 +300,12 @@ end
 
 function Connection:_start_read()
   self._cli:start_read(function(cli, err, data)
-    if err then return self:close(err) end
+    if err then
+      if err ~= EOF then
+        self._ee:emit('error', err)
+      end
+      return self:close(err)
+    end
 
     self._reader:append(data)
   end)
