@@ -246,7 +246,7 @@ end
 
 function Connection:connect(cb)
   if self._ready then
-    if cb then uv.defer(cb, self, nil, self._cli) end
+    if cb then uv.defer(cb, self) end
     return
   end
 
