@@ -280,7 +280,14 @@ function Connection:connect(cb)
 end
 
 function Connection:cancel(cb)
-  uv.tcp():connect("127.0.0.1", 5432, function(cli, err)
+  if not self._ready then
+    if cb then uv.defer(cb, self, ENOTCONN) end
+    return
+  end
+
+  local host, port = self._cnn_opt.host, self._cnn_opt.port
+
+  uv.tcp():connect(host, port, function(cli, err)
     if err then
       cli:close()
       if cb then cb(self, err) end
