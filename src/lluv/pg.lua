@@ -123,7 +123,7 @@ function Connection:__init(cfg)
   end
   self._setup.on_ready          = function()
     this._ready = true
-    this._ee:emit('ready')
+    this._ee:emit('ready', this._status)
     call_q(this._open_q, this, nil, true)
     uv.defer(this._next_query, this)
   end
