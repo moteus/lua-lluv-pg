@@ -8,6 +8,9 @@ local cnn = pg.new{
   database = 'mydb',
   user     = 'postgres',
   password = 'secret',
+  config = {
+    application_name = 'lua-lluv-pg'
+  },
 }
 
 cnn:connect(function(self, err)

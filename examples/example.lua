@@ -4,13 +4,11 @@ local pg = require "lluv.pg"
 
 local cnn = pg.new{
   database = 'mydb',
-  password = '***',
-}
-
-local cnn = pg.new{
-  database = 'mydb',
   user     = 'postgres',
   password = 'secret',
+  config = {
+    application_name = 'lua-lluv-pg'
+  },
 }
 
 cnn:connect(function(self, err)

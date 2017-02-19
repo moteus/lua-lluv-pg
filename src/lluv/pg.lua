@@ -51,6 +51,12 @@ function Connection:__init(cfg)
     user     = cfg.user or "postgres";
   }
 
+  if cfg.config then
+    for k, v in pairs(cfg.config) do
+      self._pg_opt[k] = v
+    end
+  end
+
   self._cnn_opt = {
     host     = cfg.host or '127.0.0.1';
     port     = cfg.port or 5432;
@@ -65,13 +71,13 @@ function Connection:__init(cfg)
 
   function this._on_error(fsm, err)                   this._last_error = err; this._ee:emit('error', err) end
 
-  function this._on_status(fsm, key, value)           this._status[key] = value           end
+  function this._on_status(fsm, key, value)           this._status[key] = value this._ee:emit('status', key, value) end
 
   function this._on_backend_key(fsm, pid, key, value) this._bkey = {pid = pid, key = key} end
 
-  function this._on_notice(fsm, note)                 this:on_notice(note); this._ee:emit('notice', note) end
+  function this._on_notice(fsm, note)                 this._ee:emit('notice', note) end
 
-  function this._on_notify(fsm, pid, name, payload)   this:on_notify(pid, name, payload); this._ee:emit('notify', pid, name, payload) end
+  function this._on_notify(fsm, pid, name, payload)   this._ee:emit('notify', pid, name, payload) end
 
   function this._on_terminate(fsm)
     local callback = this._active.callback
