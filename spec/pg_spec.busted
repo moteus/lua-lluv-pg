@@ -123,9 +123,8 @@ describe('pg connect', function()
 
   after_each(function(done) async()
     if cnn then
-      cnn:close(function()
-        done()
-      end)
+      cnn:close(function() done() end)
+      cnn = nil
     end
   end)
 end)
@@ -273,12 +272,13 @@ describe('pg query', function()
   after_each(function(done) async()
     if cnn then
       if cnn:connected() then
-        drop_table(cnn, function()
-          return cnn:close(function()
+        drop_table(cnn, function(self)
+          return self:close(function()
             done()
           end)
         end)
       end
+      cnn = nil
     end
     done()
   end)
