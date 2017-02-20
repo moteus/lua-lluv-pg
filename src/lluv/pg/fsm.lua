@@ -489,17 +489,14 @@ end
 
 local Execute = ut.class(Base) do
 
-local fsm = InitFSM("wait")
+local fsm = InitFSM("binding")
 
-fsm:state("wait", S("wait_ready", {
-  __start = {nil, "binding" }
-}))
-
-fsm:state("binding", S("closing", { "send_bind_and_execute",
+fsm:state("binding", S("closing", {
   BindComplete          = {nil,               "describing"    };
 }))
 
 fsm:state("describing", S("closing", {
+  -- Describe portal response
   RowDescription     = {"new_rs",             "fetching"      };
   NoData             = {};
 
@@ -523,26 +520,6 @@ fsm:state("wait_ready", S("wait_ready", {
   ReadyForQuery         = {nil,     "ready" };
 }))
 
-fsm:action("send_bind_and_execute", function(self, event, ctx, data)
-  -- we have to send commands with sync
-  -- in other case tehre may be no response from server.
-  -- In my test without sync I did not get `BindComplete`
-
-  ctx:on_send(
-    MessageEncoder.Bind(ctx._portal, ctx._name, ctx._formats, ctx._values)
-  )
-
-  ctx:on_send(
-    MessageEncoder.Describe("P", ctx._portal)
-  )
-
-  ctx:on_send(
-    MessageEncoder.Execute(ctx._portal, ctx._rows)
-  )
-
-  ctx:on_send(MessageEncoder.Sync())
-end)
-
 fsm:action("send_close", function(self, event, ctx, data)
   if ctx._portal ~= '' then
     ctx:on_send(MessageEncoder.Close("P", ctx._portal))
@@ -558,13 +535,27 @@ end
 
 function Execute:start(portal, name, formats, values, rows)
   self._portal  = portal
-  self._rows    = rows
-  self._name    = name
-  self._formats = formats
-  self._values  = values
 
   self._fsm:start()
-  self._fsm:step('__start', self)
+
+  -- we have to send commands with sync
+  -- in other case tehre may be no response from server.
+  -- In my test without sync I did not get `BindComplete`
+
+  self:on_send(
+    MessageEncoder.Bind(portal, name, formats, values)
+  )
+
+  self:on_send(
+    MessageEncoder.Describe("P", portal)
+  )
+
+  self:on_send(
+    MessageEncoder.Execute(portal, rows)
+  )
+
+  self:on_send(MessageEncoder.Sync())
+
 end
 
 end
