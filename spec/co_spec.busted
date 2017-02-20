@@ -28,7 +28,7 @@ local TEST_TABLE_NAME = 'test'
 local DEFINITION_STRING_TYPE_NAME = 'text'
 local TOTAL_FIELDS = 5
 
-function define_table(n)
+local function define_table(n)
   local t = {}
   for i = 1, n do
     table.insert (t, "f"..i.." "..DEFINITION_STRING_TYPE_NAME)
@@ -36,17 +36,22 @@ function define_table(n)
   return "create table " .. TEST_TABLE_NAME .. " ("..table.concat (t, ',')..")"
 end
 
-function create_table (cnn)
+local function create_table (cnn)
   return cnn:query(define_table(TOTAL_FIELDS))
 end
 
-function drop_table(cnn)
+local function drop_table(cnn)
   return cnn:query('drop table ' .. TEST_TABLE_NAME)
 end
 
-function table_exists(cnn)
+local function table_exists(cnn)
   local ok, err = cnn:query('select TOP 1 form ' .. TEST_TABLE_NAME)
   return not not ok
+end
+
+local function ensure_table(cnn)
+  if table_exists(cnn) then drop_table(cnn) end
+  return create_table(cnn)
 end
 
 local assert_nil     = assert.is_nil
@@ -187,8 +192,7 @@ describe('pg query', function()
   before_each(function(done) async() ut.corun(function()
     cnn = assert(pg.new(CONFIG))
     assert.equal(cnn, cnn:connect())
-    if table_exists(cnn) then drop_table(cnn) end
-    create_table(cnn)
+    ensure_table(cnn)
     done()
   end) end)
 

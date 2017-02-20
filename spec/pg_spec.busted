@@ -29,7 +29,7 @@ local TEST_TABLE_NAME = 'test'
 local DEFINITION_STRING_TYPE_NAME = 'text'
 local TOTAL_FIELDS = 5
 
-function define_table(n)
+local function define_table(n)
   local t = {}
   for i = 1, n do
     table.insert (t, "f"..i.." "..DEFINITION_STRING_TYPE_NAME)
@@ -37,23 +37,27 @@ function define_table(n)
   return "create table " .. TEST_TABLE_NAME .. " ("..table.concat (t, ',')..")"
 end
 
-function create_table (cnn, cb)
+local function create_table (cnn, cb)
   cnn:query(define_table(TOTAL_FIELDS), cb)
 end
 
-function drop_table(cnn, cb)
+local function drop_table(cnn, cb)
   cnn:query('drop table ' .. TEST_TABLE_NAME, cb)
 end
 
-function table_exists(cnn, cb)
+local function table_exists(cnn, cb)
   cnn:query('select TOP 1 form ' .. TEST_TABLE_NAME, function(self, err)
     cb(cnn, not not err)
   end)
 end
 
-function ensure_table(cnn)
-  if table_exists(cnn) then drop_table(cnn) end
-  return create_table(cnn)
+local function ensure_table(cnn, cb)
+  table_exists(cnn, function(self, bool)
+    if bool then drop_table(self, function() end) end
+    create_table(self, function(self, err) assert_nil(err)
+      cb()
+    end)
+  end)
 end
 
 describe('pg connect', function()
@@ -459,12 +463,7 @@ describe('pg query', function()
   before_each(function(done) async()
     cnn = pg.new(CONFIG)
     cnn:connect(function(self, err) assert_nil(err)
-      table_exists(self, function(self, bool)
-        if bool then drop_table(self, function() end) end
-        create_table(self, function(self, err) assert_nil(err)
-          done()
-        end)
-      end)
+      ensure_table(self, done)
     end)
   end)
 
