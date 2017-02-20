@@ -458,7 +458,7 @@ fsm:action("decode_params",  function(self, event, ctx, data)
   ctx:on_params(typs)
 end)
 
-fsm:state("wait", S("wait_ready", {
+fsm:state("wait", S("describe", {
   ParseComplete         = {nil,               "describe"      };
 }))
 
