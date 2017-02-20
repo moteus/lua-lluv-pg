@@ -121,6 +121,7 @@ function Connection:__init(cfg)
   self._setup.on_notice         = this._on_notice
   self._setup.on_notify         = this._on_notify
   self._setup.on_need_password  = function()
+    if not this._cnn_opt.password then error('no password') end
     return this._pg_opt.user, this._cnn_opt.password
   end
   self._setup.on_ready          = function()
@@ -191,7 +192,10 @@ function Connection:__init(cfg)
 
     this:_reset_active_state()
 
-    uv.defer(callback, this, this._last_error, resultset)
+    local count = #resultset
+    if count <= 1 then resultset = resultset[1] end
+
+    uv.defer(callback, this, this._last_error, resultset, count)
     uv.defer(this._next_query, this)
   end
 

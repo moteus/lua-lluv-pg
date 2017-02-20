@@ -18,13 +18,13 @@ cnn:connect(function(self, err)
   print('Connection done')
 end)
 
-local function dump_query(self, err, res)
+local function dump_query(self, err, res, count)
   if err then
     return print("Execute error:", err)
   end
 
   -- prepared query returns only one resultset
-  if res.header then res = {res} end
+  if count == 1 then res = {res} end
 
   for _, h in ipairs(res[1].header[1]) do
     io.write(h, '\t')

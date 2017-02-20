@@ -1,21 +1,285 @@
 io.stdout:setvbuf'no';io.stderr:setvbuf'no';
 package.path = "..\\src\\?.lua;" .. package.path
 
+local prequire = function(m)
+  local ok, m = pcall(require, m)
+  if ok then return m end
+end
 
-local pg = require "lluv.pg"
+local pg   = require "lluv.pg"
+local loop = require "lluv.busted.loop"
+local stp  = prequire"StackTracePlus"
 
-describe('pg', function()
+setloop(loop)
+
+loop.set_timeout(5)
+
+loop.set_traceback(stp and stp.stacktrace or debug.traceback)
+
+local CONFIG = {
+  database = os.getenv'LLUV_PG_DBNAME' or 'test',
+  user     = os.getenv'LLUV_PG_DBUSER' or 'postgres',
+  password = os.getenv'LLUV_PG_DBPASS' or '',
+}
+
+local assert_nil     = assert.is_nil
+
+local TEST_TABLE_NAME = 'test'
+local DEFINITION_STRING_TYPE_NAME = 'text'
+local TOTAL_FIELDS = 5
+
+function define_table(n)
+  local t = {}
+  for i = 1, n do
+    table.insert (t, "f"..i.." "..DEFINITION_STRING_TYPE_NAME)
+  end
+  return "create table " .. TEST_TABLE_NAME .. " ("..table.concat (t, ',')..")"
+end
+
+function create_table (cnn, cb)
+  cnn:query(define_table(TOTAL_FIELDS), cb)
+end
+
+function drop_table(cnn, cb)
+  cnn:query('drop table ' .. TEST_TABLE_NAME, cb)
+end
+
+function table_exists(cnn, cb)
+  cnn:query('select TOP 1 form ' .. TEST_TABLE_NAME, function(self, err)
+    cb(cnn, not not err)
+  end)
+end
+
+function ensure_table(cnn)
+  if table_exists(cnn) then drop_table(cnn) end
+  return create_table(cnn)
+end
+
+describe('pg connect', function()
   local cnn
 
-  it('should pass', function()
-    assert.truthy(true)
+  it('should connect', function(done) async()
+    local events = {}
+    cnn:connect(function(self, err)
+      assert.equal(cnn, self)
+      assert_nil(err)
+      assert.same({'open', 'ready'}, events)
+      done()
+    end)
+
+    cnn:on('open',function(self, event)
+      assert.equal(cnn, self)
+      events[#events + 1] = event
+    end)
+
+    cnn:on('ready',function(self, event)
+      assert.equal(cnn, self)
+      events[#events + 1] = event
+    end)
   end)
 
-  before_each(function()
-    
+  it('should fail create connection withoud database', function(done) async()
+    assert.error(function() pg.new{} end)
+    done()
   end)
 
-  after_each(function()
-    
+  it('should fail connect to unknown database', function(done) async()
+    --! @fixme do not use private fields
+    assert.table(cnn._pg_opt)
+    assert.equal(CONFIG.database, cnn._pg_opt.database)
+    cnn._pg_opt.database = CONFIG.database .. '-unknown'
+
+    local events = {}
+
+    cnn:connect(function(self, err)
+      assert.equal(cnn, self) assert.not_nil(err)
+      assert.same({'open', 'error'}, events)
+      done()
+    end)
+
+    cnn:on('open',function(self, event)
+      assert.equal(cnn, self)
+      events[#events + 1] = event
+    end)
+
+    cnn:on('ready',function(self, event, status)
+      assert.equal(cnn, self)
+      assert.table(status)
+      events[#events + 1] = event
+    end)
+
+    cnn:on('error',function(self, event, err)
+      assert.equal(cnn, self)
+      assert.not_nil(err)
+      events[#events + 1] = event
+    end)
+
   end)
+
+  before_each(function(done) async()
+    cnn = pg.new(CONFIG)
+    done()
+  end)
+
+  after_each(function(done) async()
+    if cnn then
+      cnn:close(function()
+        done()
+      end)
+    end
+  end)
+end)
+
+describe('pg query', function()
+  local cnn
+
+  it('should execute simple query with single recordset and single row', function(done) async()
+    local sql = "select 'hello' as f1, 'world' as f2"
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hello', 'world'};
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute simple query with single recordset and multiple rows', function(done) async()
+    local sql = "select 'hello' as f1, 'world' as f2"
+    local sql = sql .. " union all " .. sql
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hello', 'world'};
+        {'hello', 'world'};
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute simple query with multiple recordsets', function(done) async()
+    local sql1 = "select 'hello' as f1, 'world' as f2"
+    local sql2 = "select 1 as f3, 2.3::float4 as f4"
+    local sql = sql1 .. ";" .. sql2
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(2, count)
+      assert.same({
+        { -- first recordset
+          header = {{'f1', 'f2'}, {'string', 'string'}};
+          {'hello', 'world'};
+        },
+        { -- second recordset
+          header = {{'f3', 'f4'}, {'integer', 'number'}};
+          {'1', '2.3'};
+        }
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute simple query with multiple recordsets with empty results', function(done) async()
+    local sql1 = "select 'hello' as f1, 'world' as f2"
+    local sql2 = "select 1 as f3, 2.3::float4 as f4 where 1=0"
+    local sql3 = "select 2 as f3, 3.3::float4 as f4"
+    local sql = sql1 .. ";" .. sql2 .. ";" .. sql3
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(3, count)
+      assert.same({
+        { -- first recordset
+          header = {{'f1', 'f2'}, {'string', 'string'}};
+          {'hello', 'world'};
+        },
+        { -- second (empty) recordset
+          header = {{'f3', 'f4'}, {'integer', 'number'}};
+        },
+        { -- third recordset
+          header = {{'f3', 'f4'}, {'integer', 'number'}};
+          {'2', '3.3'};
+        }
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute simple query with multiple recordsets with errors', function(done) async()
+    local sql1 = "select 'hello' as f1, 'world' as f2"
+    local sql2 = "select 1 as f3, 2.3::float4 as f4"
+    local sql3 = "select * from not_a_table"
+    local sql4 = "select 2 as f3, 3.3::float4 as f4"
+    local sql = sql1 .. ";" .. sql2 .. ";" .. sql3 .. ";" .. sql4
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self)
+      assert.not_nil(err)     -- we get error on third query
+      assert.table(recordset) -- but got results for first two
+      assert.equal(2, count)
+      assert.same({
+        { -- first recordset
+          header = {{'f1', 'f2'}, {'string', 'string'}};
+          {'hello', 'world'};
+        },
+        { -- second recordset
+          header = {{'f3', 'f4'}, {'integer', 'number'}};
+          {'1', '2.3'};
+        }
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute simple query with recordset and rows affected', function(done) async()
+    local sql1 = "select 'hello' as f1, 'world' as f2"
+    local sql2 = "update " .. TEST_TABLE_NAME .. " set f1 = 'hello'"
+    local sql = sql1 .. ";" .. sql2
+
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(2, count)
+      assert.same({
+        { -- first recordset
+          header = {{'f1', 'f2'}, {'string', 'string'}};
+          {'hello', 'world'};
+        },
+        { -- second results (rows affected)
+          0
+        }
+      }, recordset)
+      done()
+    end)
+  end)
+
+  before_each(function(done) async()
+    cnn = pg.new(CONFIG)
+    cnn:connect(function(self, err) assert_nil(err)
+      table_exists(self, function(self, bool)
+        if bool then drop_table(self, function() end) end
+        create_table(self, function(self, err) assert_nil(err)
+          done()
+        end)
+      end)
+    end)
+  end)
+
+  after_each(function(done) async()
+    if cnn then
+      if cnn:connected() then
+        drop_table(cnn, function()
+          cnn:close(function()
+            done()
+          end)
+        end)
+      end
+    end
+  end)
+
 end)
