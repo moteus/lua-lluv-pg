@@ -3,8 +3,14 @@
 [![Build Status](https://travis-ci.org/moteus/lua-lluv-pg.svg?branch=master)](https://travis-ci.org/moteus/lua-lluv-pg)
 [![Coverage Status](https://coveralls.io/repos/github/moteus/lua-lluv-pg/badge.svg?branch=master)](https://coveralls.io/github/moteus/lua-lluv-pg?branch=master)
 
-## PostgreSQL client based on lluv library
-----
+# PostgreSQL client based on lluv library
+
+## Current limitations
+
+ * supports only md5 auth type
+ * fetch all rows for all recordsets before call callback
+ * handle `PortalSuspended` response as end of recordset
+ * NoticeResponse for query do not pass to callback but just emits as async event
 
 ### Usage
 ```Lua
