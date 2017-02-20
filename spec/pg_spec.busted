@@ -147,6 +147,17 @@ describe('pg query', function()
     end)
   end)
 
+  it('should execute simple query with rows affected', function(done) async()
+    local sql = "insert into " .. TEST_TABLE_NAME .. "(f1, f2) values('hello', 'world')"
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({1}, recordset)
+      done()
+    end)
+  end)
+
   it('should execute 2 simple query one by one', function(done) async()
     local called = false
   
@@ -404,6 +415,34 @@ describe('pg query', function()
       done()
     end)
 
+  end)
+
+  it('should execute extended query with empty recordset', function(done) async()
+    local sql = "select $1::text as f1, $2::text as f2 where 1=0"
+    local params = {'hello', 'world'}
+
+    cnn:query(sql, params, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute extended query with rows affected', function(done) async()
+    local sql = "insert into " .. TEST_TABLE_NAME .. "(f1, f2) values($1, $2)"
+    local params = {'hello', 'world'}
+
+    cnn:query(sql, params, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({1}, recordset)
+      done()
+    end)
   end)
 
   before_each(function(done) async()
