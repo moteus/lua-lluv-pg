@@ -1,6 +1,10 @@
 # lua-lluv-pg
-PostgreSQL client based on lluv library
+[![Licence](http://img.shields.io/badge/Licence-MIT-brightgreen.svg)](LICENSE)
+[![Build Status](https://travis-ci.org/moteus/lua-lluv-pg.svg?branch=master)](https://travis-ci.org/moteus/lua-lluv-pg)
+[![Coverage Status](https://coveralls.io/repos/github/moteus/lua-lluv-pg/badge.svg?branch=master)](https://coveralls.io/github/moteus/lua-lluv-pg?branch=master)
 
+## PostgreSQL client based on lluv library
+----
 
 ### Usage
 ```Lua
