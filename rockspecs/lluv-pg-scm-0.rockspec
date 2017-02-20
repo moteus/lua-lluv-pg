@@ -20,6 +20,7 @@ dependencies = {
   "lluv > 0.1.1",
   "eventemitter",
   "struct >= 1.2",
+  "lmd5",
 }
 
 build = {
