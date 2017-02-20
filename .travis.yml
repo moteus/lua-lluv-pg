@@ -1,0 +1,76 @@
+language: c
+
+sudo: false
+
+env:
+  - LLUV_PG_DBNAME=test
+  - LLUV_PG_DBUSER=postgres
+  - LLUV_PG_DBPASS=
+
+matrix:
+  include:
+    - compiler: ": Lua51"
+      env: LUA="lua 5.1"
+      os: linux
+    # - compiler: ": Lua52"
+    #   env: LUA="lua 5.2"
+    #   os: linux
+    # - compiler: ": Lua53"
+    #   env: LUA="lua 5.3"
+    #   os: linux
+    # - compiler: ": LuaJIT20"
+    #   env: LUA="luajit 2.0"
+    #   os: linux
+    # - compiler: ": LuaJIT21"
+    #   env: LUA="luajit 2.1"
+    #   os: linux
+    # - compiler: ": Lua51-osx"
+    #   env: LUA="lua 5.1"
+    #   os: osx
+
+services:
+  - postgresql
+
+cache:
+  directories:
+    - here
+    - $HOME/.cache/pip
+
+branches:
+  only:
+    - master
+
+before_install:
+  - export CC=gcc
+  - gcc --version
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export PATH=$PATH:~/Library/Python/2.7/bin/; fi
+  - pip install --user hererocks
+  - hererocks here -r^ --$LUA
+  - source here/bin/activate
+  - luarocks show lluv > /dev/null 2>&1 || bash .travis/setup_uv.sh
+  - psql --version
+  - psql -c "create database $LLUV_PG_DBNAME;" -U postgres
+
+install:
+  - luarocks show lluv > /dev/null 2>&1 || luarocks install lluv UV_DIR=$TRAVIS_BUILD_DIR/libuv
+  - luarocks make rockspecs/lluv-pg-scm-0.rockspec
+
+before_script:
+  - luarocks show lua_cliargs      > /dev/null 2>&1 || luarocks install lua_cliargs 2.5
+  - luarocks show luacov-coveralls > /dev/null 2>&1 || luarocks install luacov-coveralls
+  - luarocks show lluv-busted      > /dev/null 2>&1 || luarocks install lluv-busted --server=http://luarocks.org/dev
+  - luarocks show lua-curl         > /dev/null 2>&1 || luarocks install lua-curl
+  - luarocks show lua-log          > /dev/null 2>&1 || luarocks install lua-log
+  - luarocks show lpeg             > /dev/null 2>&1 || luarocks install lpeg
+  - luarocks show stacktraceplus   > /dev/null 2>&1 || luarocks install stacktraceplus
+
+script:
+  - busted_bootstrap --verbose --coverage
+
+after_success:
+  - luacov-coveralls -v
+
+notifications:
+  email:
+    on_success: change
+    on_failure: always
