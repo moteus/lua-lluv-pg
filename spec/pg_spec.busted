@@ -165,7 +165,6 @@ describe('pg query', function()
     local sql = "select 'hello' as f1, 'world' as f2"
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -179,7 +178,6 @@ describe('pg query', function()
     local sql = "insert into " .. TEST_TABLE_NAME .. "(f1, f2) values('hello', 'world')"
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({1}, recordset)
       done()
@@ -192,7 +190,6 @@ describe('pg query', function()
     local sql = "select 'hello' as f1, 'world' as f2"
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -204,7 +201,6 @@ describe('pg query', function()
     local sql = "select 'hi' as f2, 'again' as f3"
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f2', 'f3'}, {'string', 'string'}};
@@ -227,7 +223,6 @@ describe('pg query', function()
     local sql = "select 'hi' as f2, 'again' as f3"
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f2', 'f3'}, {'string', 'string'}};
@@ -243,7 +238,6 @@ describe('pg query', function()
     local sql = sql .. " union all " .. sql
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -260,7 +254,6 @@ describe('pg query', function()
     local sql = sql1 .. ";" .. sql2
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(2, count)
       assert.same({
         { -- first recordset
@@ -283,7 +276,6 @@ describe('pg query', function()
     local sql = sql1 .. ";" .. sql2 .. ";" .. sql3
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(3, count)
       assert.same({
         { -- first recordset
@@ -311,7 +303,6 @@ describe('pg query', function()
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self)
       assert.not_nil(err)     -- we get error on third query
-      assert.table(recordset) -- but got results for first two
       assert.equal(2, count)
       assert.same({
         { -- first recordset
@@ -334,7 +325,6 @@ describe('pg query', function()
 
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(2, count)
       assert.same({
         { -- first recordset
@@ -355,7 +345,6 @@ describe('pg query', function()
 
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -372,7 +361,6 @@ describe('pg query', function()
     local called = false
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -384,7 +372,6 @@ describe('pg query', function()
     params = {'hi', 'again'}
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -408,7 +395,6 @@ describe('pg query', function()
     local params = {'hi', 'again'}
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -433,7 +419,6 @@ describe('pg query', function()
     local params = {'hi', 'again'}
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -451,7 +436,6 @@ describe('pg query', function()
 
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({
         header = {{'f1', 'f2'}, {'string', 'string'}};
@@ -466,7 +450,6 @@ describe('pg query', function()
 
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({1}, recordset)
       done()
@@ -509,7 +492,6 @@ describe('pg pubsub', function()
 
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({}, recordset)
 
@@ -523,7 +505,6 @@ describe('pg pubsub', function()
       local sql = "NOTIFY virtual, 'hello world'"
       self:query(sql, function(self, err, recordset, count)
         assert.equal(cnn, self) assert_nil(err)
-        assert.table(recordset)
         assert.equal(1, count)
         assert.same({}, recordset)
         uv.defer(function()
@@ -541,7 +522,6 @@ describe('pg pubsub', function()
 
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
-      assert.table(recordset)
       assert.equal(1, count)
       assert.same({}, recordset)
 
@@ -555,7 +535,6 @@ describe('pg pubsub', function()
       local sql = "select pg_notify('virtual', 'hello world')"
       self:query(sql, function(self, err, recordset, count)
         assert.equal(cnn, self) assert_nil(err)
-        assert.table(recordset)
         assert.equal(1, count)
         assert.same({
           header = {{'pg_notify'}, {'string'}};

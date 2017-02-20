@@ -133,6 +133,16 @@ describe('pg query', function()
     end)
   end)
 
+  it('should execute simple query with rows affected', function(done) async()
+    ut.corun(function() cnn:attach(coroutine.running())
+      local sql = "insert into " .. TEST_TABLE_NAME .. "(f1, f2) values('hello', 'world')"
+      local recordset, count = cnn:query(sql)
+      assert.equal(1, count)
+      assert.same({affected_rows = 1}, recordset)
+      done()
+    end)
+  end)
+
   it('should execute extended query with single recordset and single row', function(done) async()
     ut.corun(function() cnn:attach(coroutine.running())
       local sql = "select $1::text as f1, $2::text as f2"
@@ -141,6 +151,23 @@ describe('pg query', function()
       assert.same({
         {f1 = 'hello', f2 = 'world'}
       }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute extended query with rows affected', function(done) async()
+    ut.corun(function() cnn:attach(coroutine.running())
+      local sql = "insert into " .. TEST_TABLE_NAME .. "(f1, f2) values($1, $2)"
+      local recordset, count = cnn:query(sql, {'hello', 'world'})
+      assert.equal(1, count)
+      assert.same({affected_rows = 1}, recordset)
+
+      local recordset, count = cnn:query("select f1, f2 from " .. TEST_TABLE_NAME)
+      assert.equal(1, count)
+      assert.same({
+        {f1 = 'hello', f2 = 'world'}
+      }, recordset)
+
       done()
     end)
   end)
@@ -157,18 +184,18 @@ describe('pg query', function()
     end)
   end)
 
-
   before_each(function(done) async() ut.corun(function()
     cnn = assert(pg.new(CONFIG))
     assert.equal(cnn, cnn:connect())
-    -- if table_exists(cnn) then drop_table(cnn) end
-    -- create_table(cnn)
+    if table_exists(cnn) then drop_table(cnn) end
+    create_table(cnn)
     done()
   end) end)
 
   after_each(function(done) async() ut.corun(function()
     if cnn then
-      -- drop_table(cnn)
+      cnn:attach(coroutine.running())
+      drop_table(cnn)
       cnn:close()
       cnn = nil
     end
