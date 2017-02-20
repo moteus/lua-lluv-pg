@@ -3,9 +3,10 @@ language: c
 sudo: false
 
 env:
-  - LLUV_PG_DBNAME=test
-  - LLUV_PG_DBUSER=postgres
-  - LLUV_PG_DBPASS=
+  global:
+    - LLUV_PG_DBNAME=test
+    - LLUV_PG_DBUSER=postgres
+    - LLUV_PG_DBPASS=
 
 matrix:
   include:
