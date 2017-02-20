@@ -6,6 +6,7 @@ local prequire = function(m)
   if ok then return m end
 end
 
+local uv   = require "lluv"
 local pg   = require "lluv.pg"
 local loop = require "lluv.busted.loop"
 local stp  = prequire"StackTracePlus"
@@ -279,6 +280,94 @@ describe('pg query', function()
         end)
       end
       cnn = nil
+    end
+    done()
+  end)
+
+end)
+
+describe('pg pubsub', function()
+  local cnn
+
+  it('should listen and notify with sql statement', function(done) async()
+    local sql = "LISTEN virtual"
+
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({}, recordset)
+
+      local events = {}
+      self:on('notify', function(self, event, pid, channel, payload)
+        assert.equal(cnn, self)
+        assert.number(pid)
+        events[#events + 1] = {event, channel, payload}
+      end)
+
+      local sql = "NOTIFY virtual"
+      self:query(sql, function(self, err, recordset, count)
+        assert.equal(cnn, self) assert_nil(err)
+        assert.table(recordset)
+        assert.equal(1, count)
+        assert.same({}, recordset)
+        uv.defer(function()
+          assert.same({
+            {'notify', 'virtual', ''}
+          }, events)
+          done()
+        end)
+      end)
+    end)
+  end)
+
+  it('should listen and notify with function with payload', function(done) async()
+    local sql = "LISTEN virtual"
+
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({}, recordset)
+
+      local events = {}
+      self:on('notify', function(self, event, pid, channel, payload)
+        assert.equal(cnn, self)
+        assert.number(pid)
+        events[#events + 1] = {event, channel, payload}
+      end)
+
+      local sql = "select pg_notify('virtual', 'hello world')"
+      self:query(sql, function(self, err, recordset, count)
+        assert.equal(cnn, self) assert_nil(err)
+        assert.table(recordset)
+        assert.equal(1, count)
+        assert.same({
+          header = {{'pg_notify'}, {'string'}};
+          {''}
+        }, recordset)
+        uv.defer(function()
+          assert.same({
+            {'notify', 'virtual', 'hello world'}
+          }, events)
+          done()
+        end)
+      end)
+    end)
+  end)
+
+  before_each(function(done) async()
+    cnn = pg.new(CONFIG)
+    cnn:connect(function(self, err) assert_nil(err)
+      done()
+    end)
+  end)
+
+  after_each(function(done) async()
+    if cnn then
+      cnn:close(function() done() end)
+      cnn = nil
+      return
     end
     done()
   end)
