@@ -147,6 +147,58 @@ describe('pg query', function()
     end)
   end)
 
+  it('should execute 2 simple query one by one', function(done) async()
+    local called = false
+  
+    local sql = "select 'hello' as f1, 'world' as f2"
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hello', 'world'};
+      }, recordset)
+      called = true
+    end)
+
+    local sql = "select 'hi' as f2, 'again' as f3"
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f2', 'f3'}, {'string', 'string'}};
+        {'hi', 'again'};
+      }, recordset)
+      assert.truthy(called)
+      done()
+    end)
+  end)
+
+  it('should execute second simple query after error', function(done) async()
+    local called = false
+  
+    local sql = "select 1 form not_a_table"
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert.not_nil(err)
+      called = true
+    end)
+
+    local sql = "select 'hi' as f2, 'again' as f3"
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f2', 'f3'}, {'string', 'string'}};
+        {'hi', 'again'};
+      }, recordset)
+      assert.truthy(called)
+      done()
+    end)
+  end)
+
   it('should execute simple query with single recordset and multiple rows', function(done) async()
     local sql = "select 'hello' as f1, 'world' as f2"
     local sql = sql .. " union all " .. sql
@@ -258,6 +310,102 @@ describe('pg query', function()
     end)
   end)
 
+  it('should execute extended query with recordset', function(done) async()
+    local sql = "select $1::text as f1, $2::text as f2"
+    local params = {'hello', 'world'}
+
+    cnn:query(sql, params, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hello', 'world'};
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute 2 extended query one by one', function(done) async()
+    local sql = "select $1::text as f1, $2::text as f2"
+    local params = {'hello', 'world'}
+
+    local called = false
+    cnn:query(sql, params, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hello', 'world'};
+      }, recordset)
+      called = true
+    end)
+
+    params = {'hi', 'again'}
+    cnn:query(sql, params, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hi', 'again'};
+      }, recordset)
+      assert.truthy(called)
+      done()
+    end)
+  end)
+
+  it('should execute second extended query after prepare error', function(done) async()
+    local called = false
+
+    local sql = "select 1 form not_a_table where 1=$1"
+    cnn:query(sql, {'1'}, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert.not_nil(err)
+      called = true
+    end)
+
+    local sql = "select $1::text as f1, $2::text as f2"
+    local params = {'hi', 'again'}
+    cnn:query(sql, params, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hi', 'again'};
+      }, recordset)
+      assert.truthy(called)
+      done()
+    end)
+
+  end)
+
+  it('should execute second extended query after execute error', function(done) async()
+    local called = false
+
+    local sql = "select $1::text as f1, $2::text as f2"
+    cnn:query(sql, {}, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert.not_nil(err)
+      called = true
+    end)
+
+    local sql = "select $1::text as f1, $2::text as f2"
+    local params = {'hi', 'again'}
+    cnn:query(sql, params, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.table(recordset)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}, {'string', 'string'}};
+        {'hi', 'again'};
+      }, recordset)
+      assert.truthy(called)
+      done()
+    end)
+
+  end)
+
   before_each(function(done) async()
     cnn = pg.new(CONFIG)
     cnn:connect(function(self, err) assert_nil(err)
@@ -305,7 +453,7 @@ describe('pg pubsub', function()
         events[#events + 1] = {event, channel, payload}
       end)
 
-      local sql = "NOTIFY virtual"
+      local sql = "NOTIFY virtual, 'hello world'"
       self:query(sql, function(self, err, recordset, count)
         assert.equal(cnn, self) assert_nil(err)
         assert.table(recordset)
@@ -313,7 +461,7 @@ describe('pg pubsub', function()
         assert.same({}, recordset)
         uv.defer(function()
           assert.same({
-            {'notify', 'virtual', ''}
+            {'notify', 'virtual', 'hello world'}
           }, events)
           done()
         end)

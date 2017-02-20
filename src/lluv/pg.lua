@@ -249,7 +249,7 @@ function Connection:__init(cfg)
 
     this:_reset_active_state()
 
-    uv.defer(callback, this, this._last_error, resultset)
+    uv.defer(callback, this, this._last_error, resultset, 1)
     uv.defer(this._next_query, this)
   end
 
@@ -382,9 +382,7 @@ function Connection:_next_extended_query(sql, params, cb)
       return uv.defer(cb, self, err)
     end
 
-    return self:_execute_query(statement_name, params, function(self, err, rows)
-      cb(self, err, rows)
-    end)
+    return self:_execute_query(statement_name, params, cb)
   end)
 end
 
