@@ -89,6 +89,8 @@ function Connection:__init(cfg)
   end
 
   function self._reader:on_message(typ, msg)
+    this._ee:emit('recv', typ, msg)
+
     if not this._fsm then return true end
 
     if not this._fsm:step(typ, msg) then
