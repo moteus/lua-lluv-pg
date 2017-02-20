@@ -1,0 +1,178 @@
+io.stdout:setvbuf'no';io.stderr:setvbuf'no';
+package.path = "..\\src\\?.lua;" .. package.path
+
+local prequire = function(m)
+  local ok, m = pcall(require, m)
+  if ok then return m end
+end
+
+local uv   = require "lluv"
+local ut   = require "lluv.utils"
+local pg   = require "lluv.pg.co"
+local loop = require "lluv.busted.loop"
+local stp  = prequire"StackTracePlus"
+
+setloop(loop)
+
+loop.set_timeout(5)
+
+loop.set_traceback(stp and stp.stacktrace or debug.traceback)
+
+local CONFIG = {
+  database = os.getenv'LLUV_PG_DBNAME' or 'test',
+  user     = os.getenv'LLUV_PG_DBUSER' or 'postgres',
+  password = os.getenv'LLUV_PG_DBPASS' or '',
+}
+
+local TEST_TABLE_NAME = 'test'
+local DEFINITION_STRING_TYPE_NAME = 'text'
+local TOTAL_FIELDS = 5
+
+function define_table(n)
+  local t = {}
+  for i = 1, n do
+    table.insert (t, "f"..i.." "..DEFINITION_STRING_TYPE_NAME)
+  end
+  return "create table " .. TEST_TABLE_NAME .. " ("..table.concat (t, ',')..")"
+end
+
+function create_table (cnn)
+  return cnn:query(define_table(TOTAL_FIELDS))
+end
+
+function drop_table(cnn)
+  return cnn:query('drop table ' .. TEST_TABLE_NAME)
+end
+
+function table_exists(cnn)
+  local ok, err = cnn:query('select TOP 1 form ' .. TEST_TABLE_NAME)
+  return not not ok
+end
+
+local assert_nil     = assert.is_nil
+
+describe('pg connect', function()
+  local cnn
+
+  it('should connect', function(done) async()
+    ut.corun(function()
+      cnn = assert(pg.new(CONFIG))
+      assert.equal(cnn, cnn:connect())
+      done()
+    end)
+  end)
+
+  it('should pass settings in connect', function(done) async()
+    ut.corun(function()
+      cnn = assert(pg.new{
+        database = CONFIG.database;
+        user     = CONFIG.user;
+        password = CONFIG.password;
+        config   = {
+          application_name = 'lluv-pg'
+        };
+      })
+
+      local ok, status = cnn:connect()
+      assert.equal(cnn, ok, status)
+      assert.table(status)
+      assert.equal('lluv-pg', status.application_name)
+      done()
+    end)
+  end)
+
+  it('should fail without database', function(done) async()
+    ut.corun(function()
+      assert.error(function()
+        cnn = assert_nil(pg.new{})
+      end)
+      done()
+    end)
+  end)
+
+  it('should fail with unknown database', function(done) async()
+    ut.corun(function()
+      cnn = assert(pg.new{
+        database = CONFIG.database .. "-unknown";
+        user     = CONFIG.user;
+        password = CONFIG.password;
+      })
+      local _, err = assert_nil(cnn:connect())
+      assert.not_nil(err)
+      assert.equal('PostgreSQL', err:cat())
+      done()
+    end)
+  end)
+
+  before_each(function(done) async()
+    done()
+  end)
+
+  after_each(function(done) async()
+    if cnn then
+      local c = cnn
+      cnn = nil
+      ut.corun(function() c:close() end)
+    end
+    done()
+  end)
+end)
+
+describe('pg query', function()
+  local cnn
+
+  it('should execute simple query with single recordset and single row', function(done) async()
+    ut.corun(function() cnn:attach(coroutine.running())
+      local sql = "select 'hello' as f1, 'world' as f2"
+      local recordset, count = cnn:query(sql)
+      assert.equal(1, count)
+      assert.same({
+        {f1 = 'hello', f2 = 'world'}
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should execute extended query with single recordset and single row', function(done) async()
+    ut.corun(function() cnn:attach(coroutine.running())
+      local sql = "select $1::text as f1, $2::text as f2"
+      local recordset, count = cnn:query(sql, {'hello', 'world'})
+      assert.equal(1, count)
+      assert.same({
+        {f1 = 'hello', f2 = 'world'}
+      }, recordset)
+      done()
+    end)
+  end)
+
+  it('should handle PortalSuspended', function(done) async()
+    ut.corun(function() cnn:attach(coroutine.running())
+      local sql = "select 'hello' as f1, 'world' as f2"
+      local recordset, count = cnn:query(sql, 1)
+      assert.equal(1, count)
+      assert.same({ suspended = true,
+        {f1 = 'hello', f2 = 'world'}
+      }, recordset)
+      done()
+    end)
+  end)
+
+
+  before_each(function(done) async() ut.corun(function()
+    cnn = assert(pg.new(CONFIG))
+    assert.equal(cnn, cnn:connect())
+    -- if table_exists(cnn) then drop_table(cnn) end
+    -- create_table(cnn)
+    done()
+  end) end)
+
+  after_each(function(done) async() ut.corun(function()
+    if cnn then
+      -- drop_table(cnn)
+      cnn:close()
+      cnn = nil
+    end
+    done()
+  end) end)
+
+end)

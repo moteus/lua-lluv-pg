@@ -18,7 +18,13 @@ local function NewPG(cfg)
     user     = cfg.user or "postgres";
   }
 
-  local cnn, srv_err
+  if cfg.config then
+    for k, v in pairs(cfg.config) do
+      opt[k] = v
+    end
+  end
+
+  local cnn, srv_err, notice
   local bkey, status = {}, {}
   local rs, rows_affected, col
   local host = cfg.host or '127.0.0.1'
@@ -42,6 +48,12 @@ local function NewPG(cfg)
 
   function setup:on_ready(status) txn = status end
 
+  function setup:on_notice(note) notice = note end
+
+  function setup:on_notify(pid, channel, payload)
+    --! @todo
+  end
+
   function setup:on_terminate()
     terminated = true
     cnn:close()
@@ -55,23 +67,36 @@ local function NewPG(cfg)
   query.on_error          = setup.on_error
   query.on_protocol_error = setup.on_protocol_error
   query.on_status         = setup.on_status
+  query.on_notice         = setup.on_notice
+  query.on_notify         = setup.on_notify
   query.on_ready          = setup.on_ready
   query.on_terminate      = setup.on_terminate
+  query.on_suspended      = function()
+    rs[#rs].suspended = true
+  end
 
   function query:on_new_rs(desc)
+    -- print('query:on_new_rs')
     append(rs, { partial = true })
     col = desc[1]
   end
 
   function query:on_row(row)
+    -- print('query:on_row')
     local t = {}
     for i, name in ipairs(col) do t[name] = row[i] end
     append(rs[#rs], t)
   end
 
-  function query:on_close_rs(rows) rs[#rs].partial = nil end
+  function query:on_close_rs(rows)
+    -- print('query:on_close_rs')
+    rs[#rs].partial = nil
+  end
 
-  function query:on_exec(rows) append(rs, {affected_rows = rows}) end
+  function query:on_exec(rows)
+    -- print('query:on_exec')
+    append(rs, {affected_rows = rows})
+  end
 
   end
 
@@ -80,6 +105,8 @@ local function NewPG(cfg)
   prepare.on_error          = query.on_error
   prepare.on_protocol_error = query.on_protocol_error
   prepare.on_status         = query.on_status
+  prepare.on_notice         = query.on_notice
+  prepare.on_notify         = query.on_notify
   prepare.on_ready          = query.on_ready
   prepare.on_terminate      = query.on_terminate
   prepare.on_new_rs         = query.on_new_rs
@@ -90,51 +117,62 @@ local function NewPG(cfg)
   execute.on_error          = query.on_error
   execute.on_protocol_error = query.on_protocol_error
   execute.on_status         = query.on_status
+  execute.on_notice         = query.on_notice
+  execute.on_notify         = query.on_notify
   execute.on_ready          = query.on_ready
   execute.on_terminate      = query.on_terminate
   execute.on_new_rs         = query.on_new_rs
   execute.on_row            = query.on_row
   execute.on_close_rs       = query.on_close_rs
   execute.on_exec           = query.on_exec
+  execute.on_suspended      = query.on_suspended
   end
 
   local reader = FSMReader.new()
 
+  local function pump()
+    while not reader:done() do
+      local data
+      data, srv_err = assert(cnn:receive"*r")
+      if not data then break end
+      reader:append(data)
+    end
+  end
+
   local cli = {}
 
-  function cli:disconnect()
-    --! @todo send Terminate
-    cnn:close()
-    cnn = nil
+  function cli:close()
+    if cnn then
+      cnn:close()
+      cnn = nil
+    end
   end
 
   function cli:connect()
+    if cnn then return nil, 'connected' end
+
     cnn, srv_err = socket.connect(host, port)
     if not cnn then return nil, srv_err end
 
     reader:reset(setup:reset())
     setup:start("3.0", opt)
 
-    while not reader:done() do
-      local data = assert(cnn:receive"*r")
-      reader:append(data)
-    end
+    pump()
 
     if srv_err then return nil, srv_err end
 
-    return self
+    return self, status
   end
 
-  function cli:query(sql)
+  function cli:query(sql, ...)
+    if ... then return self:execute(sql, ...) end
+
     rs, srv_err = {}
 
     reader:reset(query:reset())
     query:start(sql)
 
-    while not reader:done() do
-      local data = assert(cnn:receive"*r")
-      reader:append(data)
-    end
+    pump()
 
     local n = #rs
     if n == 1 then rs = rs[1] end
@@ -142,32 +180,37 @@ local function NewPG(cfg)
     return rs, n
   end
 
-  function cli:execute(sql, values)
+  function cli:execute(sql, values, rows)
+    local statementName, portalName = '', ''
     rs, srv_err = {}
 
-    reader:reset(prepare:reset())
-    prepare:start('', sql, nil)
-
-    while not reader:done() do
-      local data = assert(cnn:receive"*r")
-      reader:append(data)
+    if type(values) == 'number' then
+      rows, values = values
     end
+
+    reader:reset(prepare:reset())
+    prepare:start(statementName, sql, nil)
+
+    pump()
 
     if srv_err then return nil, srv_err end
 
-    reader:reset(execute:reset())
-    execute:start('', '', nil, values, 0)
+    rs, srv_err = {}
 
-    while not reader:done() do
-      local data = assert(cnn:receive"*r")
-      reader:append(data)
-    end
+    reader:reset(execute:reset())
+    execute:start(portalName, statementName, nil, values or {}, rows or 0)
+
+    pump()
 
     rs = rs[1]
-    if srv_err then return nil, srv_err, rs, n end
+    if srv_err then return nil, srv_err, rs, 1 end
 
     rs.partial = nil
     return rs, 1
+  end
+
+  function cli:attach(co)
+    cnn:attach(co)
   end
 
   return cli

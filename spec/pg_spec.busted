@@ -79,6 +79,32 @@ describe('pg connect', function()
     end)
   end)
 
+  it('should pass settings', function(done) async()
+    local events = {}
+    --! @fixme do not use private fields
+    assert.table(cnn._pg_opt)
+    assert.equal(CONFIG.database, cnn._pg_opt.database)
+    cnn._pg_opt.application_name = 'lluv-pg'
+
+    cnn:connect(function(self, err)
+      assert.equal(cnn, self)
+      assert_nil(err)
+      assert.same({'open', 'ready'}, events)
+      done()
+    end)
+
+    cnn:on('open',function(self, event)
+      assert.equal(cnn, self)
+      events[#events + 1] = event
+    end)
+
+    cnn:on('ready',function(self, event, settings)
+      assert.equal(cnn, self)
+      assert.equal('lluv-pg', settings.application_name)
+      events[#events + 1] = event
+    end)
+  end)
+
   it('should fail create connection withoud database', function(done) async()
     assert.error(function() pg.new{} end)
     done()
@@ -126,7 +152,9 @@ describe('pg connect', function()
     if cnn then
       cnn:close(function() done() end)
       cnn = nil
+      return
     end
+    done()
   end)
 end)
 
