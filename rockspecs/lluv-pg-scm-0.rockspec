@@ -23,13 +23,15 @@ dependencies = {
 }
 
 build = {
-  copy_directories = {'test'},
+  copy_directories = {'examples', 'spec'},
 
   type = "builtin",
 
   modules = {
-    ["lluv.odbc"        ] = "src/lua/lluv/odbc.lua",
-    ["lluv.odbc.common" ] = "src/lua/lluv/odbc/common.lua",
-    ["lluv.odbc.thread" ] = "src/lua/lluv/odbc/thread.lua",
-  }
+    [ 'lluv.pg'           ] = 'src/lluv/pg.lua',
+    [ 'lluv.pg.co'        ] = 'src/lluv/pg/co.lua',
+    [ 'lluv.pg.fsm'       ] = 'src/lluv/pg/fsm.lua',
+    [ 'lluv.pg.msg'       ] = 'src/lluv/pg/msg.lua',
+    [ 'lluv.pg.utils.fsm' ] = 'src/lluv/pg/utils/fsm.lua',
+  };
 }
