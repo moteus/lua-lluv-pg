@@ -274,12 +274,13 @@ describe('pg query', function()
     if cnn then
       if cnn:connected() then
         drop_table(cnn, function()
-          cnn:close(function()
+          return cnn:close(function()
             done()
           end)
         end)
       end
     end
+    done()
   end)
 
 end)

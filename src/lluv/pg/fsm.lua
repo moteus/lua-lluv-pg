@@ -359,6 +359,7 @@ fsm:state("setup", S("terminate", {
   BackendKeyData        = {"decode_pidkey"               };
   ReadyForQuery         = {nil,               "ready"    };
 
+  AuthenticationOk                 = {nil,               "auth_done"};
   AuthenticationMD5Password        = {"send_md5_auth",    "wait_auth_response" };
   AuthenticationCleartextPassword  = {"send_clear_auth",  "wait_auth_response" };
 }))
