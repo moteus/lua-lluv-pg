@@ -774,7 +774,7 @@ describe('pg query decode result', function()
   end)
 
   it('should execute simple query with decode recordsets in binary mode', function(done) async()
-    local sql = string.gsub(sql, ',.-^') -- remove float
+    local sql = string.gsub(sql, ',[^,]*$', '') -- remove float
     local rs  = deep_copy(rs)
     table.remove(rs.header[1]) table.remove(rs[1])
 
