@@ -21,6 +21,7 @@ dependencies = {
   "eventemitter",
   "struct >= 1.2",
   "lmd5",
+  "null",
 }
 
 build = {
