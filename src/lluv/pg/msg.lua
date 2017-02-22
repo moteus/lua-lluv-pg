@@ -1,5 +1,6 @@
 local ut     = require "lluv.utils"
 local struct = require "struct"
+local NULL   = require "null".null
 
 local unpack = unpack or table.unpack
 
@@ -40,16 +41,16 @@ local typ_decode_bin = function()
 end
 
 local TYPES = {
-  [16] = {name = "boolean", ltype = "boolean", len = 1,   decode = typ_decode_bool()};
-  [20] = {name = "int8",    ltype = "integer", len = 8,   decode = typ_decode_int(8)};
-  [21] = {name = "int2",    ltype = "integer", len = 2,   decode = typ_decode_int(2)};
-  [23] = {name = "int4",    ltype = "integer", len = 4,   decode = typ_decode_int(4)};
+  [16]   = {name = "boolean", ltype = "boolean", len = 1,   decode = typ_decode_bool()};
+  [20]   = {name = "int8",    ltype = "integer", len = 8,   decode = typ_decode_int(8)};
+  [21]   = {name = "int2",    ltype = "integer", len = 2,   decode = typ_decode_int(2)};
+  [23]   = {name = "int4",    ltype = "integer", len = 4,   decode = typ_decode_int(4)};
 
-  [700] = {name = "float4", ltype = "number",  len = 4,   decode = typ_decode_float(4)};
-  [701] = {name = "float8", ltype = "number",  len = 8,   decode = typ_decode_float(8)};
+  [700]  = {name = "float4",  ltype = "number",  len = 4,   decode = typ_decode_float(4)};
+  [701]  = {name = "float8",  ltype = "number",  len = 8,   decode = typ_decode_float(8)};
 
-  [19] = {name = "name",    ltype = "string",  len = 64,  decode = typ_decode_bin() };
-  [25] = {name = "text",    ltype = "string",  len = nil, decode = typ_decode_bin() };
+  [19]   = {name = "name",    ltype = "string",  len = 64,  decode = typ_decode_bin() };
+  [25]   = {name = "text",    ltype = "string",  len = nil, decode = typ_decode_bin() };
 }
 
 local function DecodeValue(value, mode, tid)
@@ -62,6 +63,13 @@ local function DecodeType(tid)
   local typ = TYPES[tid]
   if not typ then return 'string' end
   return typ.ltype, typ.name
+end
+
+local function read_data(data, pos)
+  local len len, pos = struct.unpack(">i4", data, pos)
+  if len < 0 then return NULL, pos end
+  if len == 0 then return '', pos end
+  return string.sub(data, pos, pos + len - 1), pos + len
 end
 
 local MessageEncoder = {} do
@@ -140,10 +148,10 @@ MessageEncoder.Sync = function(name, value)
   return pack("S", "")
 end
 
-MessageEncoder.Bind = function(portal, name, formats, values)
+MessageEncoder.Bind = function(portal, name, formats, values, result_formats)
   local buf = {portal .. '\0' .. name .. '\0'}
 
-  if formats then
+  if formats then -- binary or text
     append(buf, struct.pack(">I2", #formats))
     for i = 1, #formats do
       append(buf, struct.pack(">I2", formats[i]))
@@ -156,14 +164,25 @@ MessageEncoder.Bind = function(portal, name, formats, values)
     append(buf, struct.pack(">I2", #values))
     for i = 1, #values do
       v = values[i]
-      assert(type(v) == 'string')
-      append(buf, struct.pack(">I4", #v) .. v)
+      if v == NULL then
+        append(buf, struct.pack(">i4", -1))
+      else
+        assert(type(v) == 'string')
+        append(buf, struct.pack(">I4", #v) .. v)
+      end
     end
   else
     append(buf, struct.pack(">I2", 0))
   end
 
-  append(buf, struct.pack(">I2", 0)) -- text mode(result)
+  if result_formats then -- binary or text
+    append(buf, struct.pack(">I2", #result_formats))
+    for i = 1, #result_formats do
+      append(buf, struct.pack(">I2", result_formats[i]))
+    end
+  else
+    append(buf, struct.pack(">I2", 0))
+  end
 
   return pack('B', table.concat(buf))
 end
@@ -301,16 +320,7 @@ function MessageDecoder.DataRow(data)
 
   local row = {}
   for i = 1, n do
-    local len len, pos = struct.unpack(">i4", data, pos)
-    if len < 0 then  row[i] = nil
-    else
-      if len == 0 then
-        row[i] = ''
-      else
-        row[i] = string.sub(data, pos, pos + len - 1)
-        pos = pos + len
-      end
-    end
+    row[i], pos = read_data(data, pos)
   end
 
   return row
@@ -365,8 +375,7 @@ end
 end
 
 return {
-  decoder = MessageDecoder;
-  encoder = MessageEncoder;
-  decode_value = DecodeValue;
-  decode_type  = DecodeType;
+  decoder   = MessageDecoder;
+  encoder   = MessageEncoder;
+  NULL      = NULL;
 }

@@ -3,7 +3,7 @@ local ut             = require "lluv.utils"
 local FSM            = require "lluv.pg.utils.fsm"
 local MessageEncoder = require "lluv.pg.msg".encoder
 local MessageDecoder = require "lluv.pg.msg".decoder
-local decode_type    = require "lluv.pg.msg".decode_type
+local DataTypes      = require "lluv.pg.types"
 
 local function append(t, v) t[#t + 1] = v return t end
 
@@ -189,9 +189,9 @@ local function on_new_recordset(self, event, ctx, data)
   local cols, typs = {}, {}
 
   for i, desc in ipairs(rows) do
-    local ltyp = decode_type(desc[2])
     cols[#cols + 1] = desc[1]
-    typs[#typs + 1] = ltyp
+    desc[1] = DataTypes.type_name(desc[2])
+    typs[#typs + 1] = desc
   end
 
   ctx:on_new_rs{cols, typs}

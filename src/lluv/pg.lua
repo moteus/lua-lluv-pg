@@ -8,6 +8,9 @@ local MessageReader = require "lluv.pg.fsm".MessageReader
 local Idle          = require "lluv.pg.fsm".Idle
 local Prepare       = require "lluv.pg.fsm".Prepare
 local Execute       = require "lluv.pg.fsm".Execute
+local NULL          = require "lluv.pg.msg".NULL
+local DataTypes     = require "lluv.pg.types"
+local Array         = require "lluv.pg.array"
 
 local MessageEncoder = require "lluv.pg.msg".encoder
 
@@ -181,7 +184,15 @@ function Connection:__init(cfg)
 
   function self._query:on_row(row)
     local resultset = this._active.resultset
-    append(resultset[#resultset], row)
+    resultset = resultset[#resultset]
+    types = resultset.header[2]
+    for i = 1, #types do
+      local type_desc = types[i]
+      if DataTypes.is_array(type_desc) then
+        row[i] = Array.decode(type_desc[3], row[i])
+      end
+    end
+    append(resultset, row)
   end
 
   function self._query:on_close_rs(rows) end
@@ -233,6 +244,13 @@ function Connection:__init(cfg)
 
   function self._execute:on_row(row)
     local resultset = this._active.resultset
+    types = resultset.header[2]
+    for i = 1, #types do
+      local type_desc = types[i]
+      if DataTypes.is_array(type_desc) then
+        row[i] = Array.decode(type_desc[3], row[i])
+      end
+    end
     append(resultset, row)
   end
 
@@ -481,5 +499,6 @@ end
 end
 
 return {
-  new = Connection.new
+  new  = Connection.new;
+  NULL = NULL;
 }

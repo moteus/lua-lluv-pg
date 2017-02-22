@@ -11,6 +11,8 @@ local pg   = require "lluv.pg"
 local loop = require "lluv.busted.loop"
 local stp  = prequire"StackTracePlus"
 
+local NULL = pg.NULL
+
 setloop(loop)
 
 loop.set_timeout(5)
@@ -58,6 +60,27 @@ local function ensure_table(cnn, cb)
       cb()
     end)
   end)
+end
+
+local function norm_rs(...)
+  -- remove `types` from `header`
+
+  local rs = ...
+
+  if type(rs) ~= 'table' then
+    return ...
+  end
+
+  if rs.header then
+    rs.header[2] = nil
+    return ...
+  end
+
+  for i = 1, #rs do
+    rs[i] = norm_rs(rs[i])
+  end
+
+  return ...
 end
 
 describe('pg connect', function()
@@ -171,9 +194,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hello', 'world'};
-      }, recordset)
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -183,7 +206,7 @@ describe('pg query', function()
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
-      assert.same({1}, recordset)
+      assert.same({1}, norm_rs(recordset))
       done()
     end)
   end)
@@ -196,9 +219,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hello', 'world'};
-      }, recordset)
+      }, norm_rs(recordset))
       called = true
     end)
 
@@ -207,9 +230,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f2', 'f3'}, {'string', 'string'}};
+        header = {{'f2', 'f3'}};
         {'hi', 'again'};
-      }, recordset)
+      }, norm_rs(recordset))
       assert.truthy(called)
       done()
     end)
@@ -229,9 +252,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f2', 'f3'}, {'string', 'string'}};
+        header = {{'f2', 'f3'}};
         {'hi', 'again'};
-      }, recordset)
+      }, norm_rs(recordset))
       assert.truthy(called)
       done()
     end)
@@ -244,10 +267,10 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hello', 'world'};
         {'hello', 'world'};
-      }, recordset)
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -261,14 +284,14 @@ describe('pg query', function()
       assert.equal(2, count)
       assert.same({
         { -- first recordset
-          header = {{'f1', 'f2'}, {'string', 'string'}};
+          header = {{'f1', 'f2'}};
           {'hello', 'world'};
         },
         { -- second recordset
-          header = {{'f3', 'f4'}, {'integer', 'number'}};
+          header = {{'f3', 'f4'}};
           {'1', '2.3'};
         }
-      }, recordset)
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -283,17 +306,17 @@ describe('pg query', function()
       assert.equal(3, count)
       assert.same({
         { -- first recordset
-          header = {{'f1', 'f2'}, {'string', 'string'}};
+          header = {{'f1', 'f2'}};
           {'hello', 'world'};
         },
         { -- second (empty) recordset
-          header = {{'f3', 'f4'}, {'integer', 'number'}};
+          header = {{'f3', 'f4'}};
         },
         { -- third recordset
-          header = {{'f3', 'f4'}, {'integer', 'number'}};
+          header = {{'f3', 'f4'}};
           {'2', '3.3'};
         }
-      }, recordset)
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -310,14 +333,14 @@ describe('pg query', function()
       assert.equal(2, count)
       assert.same({
         { -- first recordset
-          header = {{'f1', 'f2'}, {'string', 'string'}};
+          header = {{'f1', 'f2'}};
           {'hello', 'world'};
         },
         { -- second recordset
-          header = {{'f3', 'f4'}, {'integer', 'number'}};
+          header = {{'f3', 'f4'}};
           {'1', '2.3'};
         }
-      }, recordset)
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -332,13 +355,13 @@ describe('pg query', function()
       assert.equal(2, count)
       assert.same({
         { -- first recordset
-          header = {{'f1', 'f2'}, {'string', 'string'}};
+          header = {{'f1', 'f2'}};
           {'hello', 'world'};
         },
         { -- second results (rows affected)
           0
         }
-      }, recordset)
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -351,9 +374,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hello', 'world'};
-      }, recordset)
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -367,9 +390,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hello', 'world'};
-      }, recordset)
+      }, norm_rs(recordset))
       called = true
     end)
 
@@ -378,9 +401,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hi', 'again'};
-      }, recordset)
+      }, norm_rs(recordset))
       assert.truthy(called)
       done()
     end)
@@ -401,9 +424,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hi', 'again'};
-      }, recordset)
+      }, norm_rs(recordset))
       assert.truthy(called)
       done()
     end)
@@ -425,9 +448,9 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
+        header = {{'f1', 'f2'}};
         {'hi', 'again'};
-      }, recordset)
+      }, norm_rs(recordset))
       assert.truthy(called)
       done()
     end)
@@ -442,8 +465,8 @@ describe('pg query', function()
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
       assert.same({
-        header = {{'f1', 'f2'}, {'string', 'string'}};
-      }, recordset)
+        header = {{'f1', 'f2'}};
+      }, norm_rs(recordset))
       done()
     end)
   end)
@@ -455,7 +478,7 @@ describe('pg query', function()
     cnn:query(sql, params, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
-      assert.same({1}, recordset)
+      assert.same({1}, norm_rs(recordset))
       done()
     end)
   end)
@@ -492,7 +515,7 @@ describe('pg pubsub', function()
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
-      assert.same({}, recordset)
+      assert.same({}, norm_rs(recordset))
 
       local events = {}
       self:on('notify', function(self, event, pid, channel, payload)
@@ -505,7 +528,7 @@ describe('pg pubsub', function()
       self:query(sql, function(self, err, recordset, count)
         assert.equal(cnn, self) assert_nil(err)
         assert.equal(1, count)
-        assert.same({}, recordset)
+        assert.same({}, norm_rs(recordset))
         uv.defer(function()
           assert.same({
             {'notify', 'virtual', 'hello world'}
@@ -522,7 +545,7 @@ describe('pg pubsub', function()
     cnn:query(sql, function(self, err, recordset, count)
       assert.equal(cnn, self) assert_nil(err)
       assert.equal(1, count)
-      assert.same({}, recordset)
+      assert.same({}, norm_rs(recordset))
 
       local events = {}
       self:on('notify', function(self, event, pid, channel, payload)
@@ -536,9 +559,9 @@ describe('pg pubsub', function()
         assert.equal(cnn, self) assert_nil(err)
         assert.equal(1, count)
         assert.same({
-          header = {{'pg_notify'}, {'string'}};
+          header = {{'pg_notify'}};
           {''}
-        }, recordset)
+        }, norm_rs(recordset))
         uv.defer(function()
           assert.same({
             {'notify', 'virtual', 'hello world'}
@@ -559,6 +582,143 @@ describe('pg pubsub', function()
   after_each(function(done) async()
     if cnn then
       cnn:close(function() done() end)
+      cnn = nil
+      return
+    end
+    done()
+  end)
+
+end)
+
+describe('pg arrays', function()
+  local cnn
+
+  local function BINARY(sql)
+    sql = "DECLARE cur BINARY CURSOR FOR " .. sql .. ";"
+    sql = sql .. "fetch cur";
+    return sql
+  end
+
+  describe('text mode',function()
+    it('should decode simple array', function(done) async()
+      local sql = 'select ARRAY[1,2,3] as f1'
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({
+          header = {{'f1'}};
+          {{'1', '2', '3'}};
+        }, norm_rs(recordset))
+        done()
+      end)
+    end)
+
+    it('should decode multidimensional array', function(done) async()
+      local sql = 'select ARRAY[ ARRAY[1,2,3], ARRAY[4,5,6] ] as f1'
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({
+          header = {{'f1'}};
+          {{{'1','2','3'},{'4','5','6'}}};
+        }, norm_rs(recordset))
+        done()
+      end)
+    end)
+
+    it('should decode strings array', function(done) async()
+      local sql = [[select ARRAY[
+        ARRAY['value with spaces','hi','again}'],ARRAY['{hello',',','{}world'] ] as f1
+       ]]
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({
+          header = {{'f1'}};
+          { {
+            {'value with spaces','hi','again}'},
+            {'{hello',',','{}world'}
+          } }
+        }, norm_rs(recordset))
+        done()
+      end)
+    end)
+
+    it('should decode NULL values inside array', function(done) async()
+      local sql = "select ARRAY[NULL,'NULL1','NULL',NULL] as f1"
+      assert.truthy(cnn:connected())
+      -- print('execute', cnn)
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({
+          header = {{'f1'}};
+          {{NULL,'NULL1','NULL', NULL}};
+        }, norm_rs(recordset))
+        done()
+      end)
+    end)
+  end)
+
+  describe('binary mode',function()
+    it('should decode simple array', function(done) async()
+      local sql = BINARY'select ARRAY[1,2,3] as f1'
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({{},{
+          header = {{'f1'}};
+          {{'\0\0\0\1', '\0\0\0\2', '\0\0\0\3'}};
+        }}, norm_rs(recordset))
+        done()
+      end)
+    end)
+
+    it('should decode multidimensional array', function(done) async()
+      local sql = BINARY'select ARRAY[ ARRAY[1,2,3], ARRAY[4,5,6] ] as f1'
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({{},{
+          header = {{'f1'}};
+          {{{'\0\0\0\1','\0\0\0\2','\0\0\0\3'},{'\0\0\0\4','\0\0\0\5','\0\0\0\6'}}};
+        }}, norm_rs(recordset))
+        done()
+      end)
+    end)
+
+    it('should decode strings array', function(done) async()
+      local sql = BINARY[[select ARRAY[
+        ARRAY['value with spaces','hi','again}'],ARRAY['{hello',',','{}world'] ] as f1
+       ]]
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({{},{
+          header = {{'f1'}};
+          { {
+            {'value with spaces','hi','again}'},
+            {'{hello',',','{}world'}
+          } }
+        }}, norm_rs(recordset))
+        done()
+      end)
+    end)
+
+    it('should decode NULL values inside array', function(done) async()
+      local sql = BINARY"select ARRAY[NULL,'NULL1','NULL',NULL] as f1"
+      assert.truthy(cnn:connected())
+      -- print('execute', cnn)
+      cnn:query(sql, function(self, err, recordset) assert_nil(err)
+        assert.same({{},{
+          header = {{'f1'}};
+          {{NULL,'NULL1','NULL', NULL}};
+        }}, norm_rs(recordset))
+        done()
+      end)
+    end)
+  end)
+
+  before_each(function(done) async()
+    cnn = pg.new(CONFIG)
+    cnn:connect(function(self, err) assert_nil(err)
+      -- print('connected: ', cnn)
+      done()
+    end)
+  end)
+
+  after_each(function(done) async()
+    if cnn and cnn:connected() then
+      cnn:close(function(self)
+        -- print('closed: ', self)
+        done()
+      end)
       cnn = nil
       return
     end
