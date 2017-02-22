@@ -145,8 +145,17 @@ local base = {
   [ 4096 ] = "regrole";
 }
 
+local oids = {}
+
+for oid, name in ipairs(arrays) do oids[ name ] = oid end
+for oid, name in ipairs(base)   do oids[ name ] = oid end
+
 local function type_name(typ)
   return arrays[typ] or base[typ] or tostring(typ)
+end
+
+local function type_oid(name)
+  return oids[name] or 0
 end
 
 local function is_array(desc)
@@ -155,5 +164,6 @@ end
 
 return {
   type_name = type_name;
+  type_oid  = type_oid;
   is_array  = is_array;
 }

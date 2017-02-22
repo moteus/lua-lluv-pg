@@ -11,60 +11,6 @@ local VER = {
   ["3.0.ssl"] = 80877103;
 }
 
-local typ_decode_int = function(n)
-  local fmt = '>i' .. n
-  return {
-    [0] = tonumber;
-    [1] = function(data) return struct.unpack(fmt, data) end;
-  }
-end
-
-local typ_decode_float = function(n)
-  return {
-    [0] = tonumber;
-    [1] = function(data) error('Unsupported binary mode for float types', 3) end;
-  }
-end
-
-local typ_decode_bool = function()
-  local t = typ_decode_int(1)
-  local txt, bin = t[0], t[1]
-  return {
-    [0] = function(...) return txt(...) ~= 0 end;
-    [1] = function(...) return bin(...) ~= 0 end;
-  }
-end
-
-local typ_decode_bin = function()
-  local ret = function(data) return data end
-  return {[0] = ret; [1] = ret;}
-end
-
-local TYPES = {
-  [16]   = {name = "boolean", ltype = "boolean", len = 1,   decode = typ_decode_bool()};
-  [20]   = {name = "int8",    ltype = "integer", len = 8,   decode = typ_decode_int(8)};
-  [21]   = {name = "int2",    ltype = "integer", len = 2,   decode = typ_decode_int(2)};
-  [23]   = {name = "int4",    ltype = "integer", len = 4,   decode = typ_decode_int(4)};
-
-  [700]  = {name = "float4",  ltype = "number",  len = 4,   decode = typ_decode_float(4)};
-  [701]  = {name = "float8",  ltype = "number",  len = 8,   decode = typ_decode_float(8)};
-
-  [19]   = {name = "name",    ltype = "string",  len = 64,  decode = typ_decode_bin() };
-  [25]   = {name = "text",    ltype = "string",  len = nil, decode = typ_decode_bin() };
-}
-
-local function DecodeValue(value, mode, tid)
-  local typ = TYPES[tid]
-  if not typ then return value end
-  return typ.decode[mode](data), typ.name
-end
-
-local function DecodeType(tid)
-  local typ = TYPES[tid]
-  if not typ then return 'string' end
-  return typ.ltype, typ.name
-end
-
 local function read_data(data, pos)
   local len len, pos = struct.unpack(">i4", data, pos)
   if len < 0 then return NULL, pos end

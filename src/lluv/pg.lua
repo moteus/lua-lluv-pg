@@ -11,6 +11,7 @@ local Execute       = require "lluv.pg.fsm".Execute
 local NULL          = require "lluv.pg.msg".NULL
 local DataTypes     = require "lluv.pg.types"
 local Array         = require "lluv.pg.array"
+local Converter     = require "lluv.pg.converter"
 
 local MessageEncoder = require "lluv.pg.msg".encoder
 
@@ -64,6 +65,10 @@ function Connection:__init(cfg)
     host     = cfg.host or '127.0.0.1';
     port     = cfg.port or 5432;
     password = cfg.password;
+  }
+
+  self._settings = {
+    decode = cfg.decode; -- decode data
   }
 
   local this = self
@@ -172,6 +177,36 @@ function Connection:__init(cfg)
   self._execute.on_notice         = this._on_notice
   self._execute.on_notify         = this._on_notify
 
+  local function translate_desc(self, resultset, desc)
+    local types = desc[2]
+
+    if self._settings.decode then
+      for i = 1, #types do
+        local type_desc = types[i]
+        type_desc.decode = Converter.decoder(type_desc)
+      end
+    end
+
+    resultset.header = desc
+
+    return resultset
+  end
+
+  local function translate_data_row(self, resultset, row)
+    local types = resultset.header[2]
+
+    for i = 1, #types do
+      local type_desc = types[i]
+      if DataTypes.is_array(type_desc) then
+        row[i] = Array.decode(type_desc[3], row[i], type_desc.decode)
+      elseif type_desc.decode then
+        row[i] = type_desc.decode(row[i])
+      end
+    end
+
+    append(resultset, row)
+  end
+
   function self._query:on_exec(rows)
     local resultset = this._active.resultset
     append(resultset, {rows})
@@ -179,20 +214,13 @@ function Connection:__init(cfg)
 
   function self._query:on_new_rs(desc)
     local resultset = this._active.resultset
-    append(resultset, {header = desc})
+    append(resultset, translate_desc(this, {}, desc))
   end
 
   function self._query:on_row(row)
     local resultset = this._active.resultset
     resultset = resultset[#resultset]
-    types = resultset.header[2]
-    for i = 1, #types do
-      local type_desc = types[i]
-      if DataTypes.is_array(type_desc) then
-        row[i] = Array.decode(type_desc[3], row[i])
-      end
-    end
-    append(resultset, row)
+    translate_data_row(self, resultset, row)
   end
 
   function self._query:on_close_rs(rows) end
@@ -213,7 +241,7 @@ function Connection:__init(cfg)
   ---------------------------------------------------------
 
   function self._prepare:on_new_rs(desc)
-    this._active.resultset = desc
+    this._active.resultset = translate_desc(this, {}, desc).header
   end
 
   function self._prepare:on_params(params)
@@ -239,19 +267,12 @@ function Connection:__init(cfg)
 
   function self._execute:on_new_rs(desc)
     local resultset = this._active.resultset
-    resultset.header = desc
+    translate_desc(this, resultset, desc)
   end
 
   function self._execute:on_row(row)
     local resultset = this._active.resultset
-    types = resultset.header[2]
-    for i = 1, #types do
-      local type_desc = types[i]
-      if DataTypes.is_array(type_desc) then
-        row[i] = Array.decode(type_desc[3], row[i])
-      end
-    end
-    append(resultset, row)
+    translate_data_row(self, resultset, row)
   end
 
   function self._execute:on_close_rs(rows) end

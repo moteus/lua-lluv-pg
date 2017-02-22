@@ -19,6 +19,18 @@ loop.set_timeout(5)
 
 loop.set_traceback(stp and stp.stacktrace or debug.traceback)
 
+local function deep_copy(t)
+  local o = {}
+  for k, v in pairs(t) do
+    if type(v) == "table" then
+      o[k] = deep_copy(v)
+    else
+      o[k] = v
+    end
+  end
+  return o
+end
+
 local CONFIG = {
   database = os.getenv'LLUV_PG_DBNAME' or 'test',
   user     = os.getenv'LLUV_PG_DBUSER' or 'postgres',
@@ -641,7 +653,6 @@ describe('pg arrays', function()
     it('should decode NULL values inside array', function(done) async()
       local sql = "select ARRAY[NULL,'NULL1','NULL',NULL] as f1"
       assert.truthy(cnn:connected())
-      -- print('execute', cnn)
       cnn:query(sql, function(self, err, recordset) assert_nil(err)
         assert.same({
           header = {{'f1'}};
@@ -694,7 +705,6 @@ describe('pg arrays', function()
     it('should decode NULL values inside array', function(done) async()
       local sql = BINARY"select ARRAY[NULL,'NULL1','NULL',NULL] as f1"
       assert.truthy(cnn:connected())
-      -- print('execute', cnn)
       cnn:query(sql, function(self, err, recordset) assert_nil(err)
         assert.same({{},{
           header = {{'f1'}};
@@ -708,7 +718,6 @@ describe('pg arrays', function()
   before_each(function(done) async()
     cnn = pg.new(CONFIG)
     cnn:connect(function(self, err) assert_nil(err)
-      -- print('connected: ', cnn)
       done()
     end)
   end)
@@ -716,7 +725,6 @@ describe('pg arrays', function()
   after_each(function(done) async()
     if cnn and cnn:connected() then
       cnn:close(function(self)
-        -- print('closed: ', self)
         done()
       end)
       cnn = nil
@@ -725,4 +733,75 @@ describe('pg arrays', function()
     done()
   end)
 
+end)
+
+describe('pg query decode result', function()
+  local cnn
+
+  local function BINARY(sql)
+    sql = "DECLARE cur BINARY CURSOR FOR " .. sql .. ";"
+    sql = sql .. "fetch cur";
+    return sql
+  end
+
+  local sql = "select " do
+  sql = sql .. "'hello'::text       as f1,"
+  sql = sql .. "1::int4             as f2,"
+  sql = sql .. "5.2::numeric(10,4)  as f31,"
+  sql = sql .. "-5.2::numeric(10,4) as f32,"
+  sql = sql .. "1::bool             as f4,"
+  sql = sql .. "ARRAY[1,2,3]        as f5,"
+  sql = sql .. "5.2::float8         as f6"
+  end
+
+  local rs = {
+    header = {{'f1', 'f2', 'f31', 'f32', 'f4', 'f5', 'f6'}};
+    {'hello', 1, "5.2000", "-5.2000", true, {1,2,3}, 5.2};
+  }
+
+  it('should execute simple query with decode recordsets', function(done) async()
+    cnn:query(sql, function(self, err, recordset, count) assert_nil(err)
+      assert.same(rs, norm_rs(recordset))
+      done()
+    end)
+  end)
+
+  it('should execute extended query with decode recordsets', function(done) async()
+    cnn:query(sql, {}, function(self, err, recordset, count) assert_nil(err)
+      assert.same(rs, norm_rs(recordset))
+      done()
+    end)
+  end)
+
+  it('should execute simple query with decode recordsets in binary mode', function(done) async()
+    local sql = string.gsub(sql, ',.-^') -- remove float
+    local rs  = deep_copy(rs)
+    table.remove(rs.header[1]) table.remove(rs[1])
+
+    cnn:query(BINARY(sql), function(self, err, recordset, count) assert_nil(err)
+      assert.same({{},rs}, norm_rs(recordset))
+      done()
+    end)
+  end)
+
+  before_each(function(done) async()
+    local config = deep_copy(CONFIG)
+    config.decode = true
+
+    cnn = pg.new(config)
+    cnn:connect(function(self, err) assert_nil(err)
+      done()
+    end)
+  end)
+
+  after_each(function(done) async()
+    if cnn and cnn:connected() then
+      cnn:close(function(self)
+        done()
+      end)
+      cnn = nil
+      return
+    end
+    done()
+  end)
 end)
