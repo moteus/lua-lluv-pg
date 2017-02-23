@@ -14,13 +14,6 @@ local function super(self, m, ...)
   return self
 end
 
-local HEX = function(s)
-  return (s:gsub("%s*",""):gsub("([0-9A-Fa-f][0-9A-Fa-f])", function(f)
-    f = tonumber(f, 16)
-    return string.char(f)
-  end))
-end
-
 local ERROR_PG = "PostgreSQL" -- error category
 
 local PGServerError = ut.class() do
