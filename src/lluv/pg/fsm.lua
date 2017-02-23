@@ -505,6 +505,10 @@ fsm:state("describing", S("closing", {
   -- Execute responses
   CommandComplete    = {"exec_complite",      "closing"       };
   EmptyQueryResponse = {"empty_rs",           "closing"       };
+
+  -- Execute responses if we do not send Describe
+  DataRow            = {"decode_row",         "fetching"      };
+  PortalSuspended    = {"suspended",          "closing"       };
 }))
 
 fsm:state("fetching", S("closing", {
@@ -535,8 +539,8 @@ function Execute:__init()
   return self
 end
 
-function Execute:start(portal, name, formats, values, rows)
-  self._portal  = portal
+function Execute:start(describe, portal, name, formats, values, rows)
+  self._portal = portal
 
   self._fsm:start()
 
@@ -548,9 +552,11 @@ function Execute:start(portal, name, formats, values, rows)
     MessageEncoder.Bind(portal, name, formats, values)
   )
 
-  self:on_send(
-    MessageEncoder.Describe("P", portal)
-  )
+  if describe then
+    self:on_send(
+      MessageEncoder.Describe("P", portal)
+    )
+  end
 
   self:on_send(
     MessageEncoder.Execute(portal, rows)

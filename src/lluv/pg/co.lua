@@ -198,7 +198,7 @@ local function NewPG(cfg)
     rs, srv_err = {}
 
     reader:reset(execute:reset())
-    execute:start(portalName, statementName, nil, values or {}, rows or 0)
+    execute:start(true, portalName, statementName, nil, values or {}, rows or 0)
 
     pump()
 

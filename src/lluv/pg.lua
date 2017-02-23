@@ -246,7 +246,7 @@ function Connection:__init(cfg)
   ---------------------------------------------------------
 
   function self._prepare:on_new_rs(desc)
-    this._active.resultset = translate_desc(this, {}, desc).header
+    this._active.resultset = translate_desc(this, {}, desc)
   end
 
   function self._prepare:on_params(params)
@@ -267,7 +267,9 @@ function Connection:__init(cfg)
 
   function self._execute:on_exec(rows)
     local resultset = this._active.resultset
-    append(resultset, rows)
+    if not resultset.header then
+      append(resultset, rows)
+    end
   end
 
   function self._execute:on_new_rs(desc)
@@ -428,7 +430,7 @@ function Connection:_next_extended_query(sql, params, cb)
       return uv.defer(cb, self, err)
     end
 
-    return self:_execute_query(statement_name, params, cb)
+    return self:_execute_query(statement_name, params, rs, cb)
   end)
 end
 
@@ -442,16 +444,20 @@ function Connection:_prepare_query(name, sql, cb)
   self._fsm:start(name, sql)
 end
 
-function Connection:_execute_query(name, params, cb)
+function Connection:_execute_query(name, params, resultset, cb)
+  if is_callable(resultset) then
+    cb, resultset = resultset
+  end
+
   local portal = ''
 
   self._fsm = self._execute:reset()
 
   self._active.callback  = cb
-  self._active.resultset = {}
+  self._active.resultset = resultset or {}
   self._active.params    = nil
 
-  self._fsm:start(portal, name, nil, params, 0)
+  self._fsm:start(not resultset, portal, name, nil, params, 0)
 end
 
 function Connection:close(err, cb)
