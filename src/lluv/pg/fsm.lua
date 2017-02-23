@@ -7,6 +7,13 @@ local DataTypes      = require "lluv.pg.types"
 
 local function append(t, v) t[#t + 1] = v return t end
 
+local function super(self, m, ...)
+  if self.__base and self.__base[m] then
+    return self.__base[m](self, ...)
+  end
+  return self
+end
+
 local HEX = function(s)
   return (s:gsub("%s*",""):gsub("([0-9A-Fa-f][0-9A-Fa-f])", function(f)
     f = tonumber(f, 16)
@@ -146,42 +153,42 @@ end
 local function on_server_error(fsm, event, ctx, data)
   local err = MessageDecoder.ErrorResponse(data)
   err = PGServerError.new(err)
-  ctx:on_error(err)
+  ctx.on_error(ctx._self, err)
   return ctx, err
 end
 
 local function on_protocol_error(fsm, event, ctx, data)
   local err = PGProtoError.new(fsm:active(), event, data)
-  ctx:on_protocol_error(err)
+  ctx.on_protocol_error(ctx._self, err)
   return ctx, err
 end
 
 local function on_status(fsm, event, ctx, data)
   local key, val = MessageDecoder.ParameterStatus(data)
-  ctx:on_status(key, val)
+  ctx.on_status(ctx._self, key, val)
   return ctx, key, val
 end
 
 local function on_notice(fsm, event, ctx, data)
   local res = MessageDecoder.NoticeResponse(data)
-  ctx:on_notice(res)
+  ctx.on_notice(ctx._self, res)
   return ctx, res
 end
 
 local function on_notify(fsm, event, ctx, data)
   local pid, name, payload = MessageDecoder.NotificationResponse(data)
-  ctx:on_notify(pid, name, payload)
+  ctx.on_notify(ctx._self, pid, name, payload)
   return ctx, pid, name, payload
 end
 
 local function on_ready(fsm, event, ctx, data)
   local status = MessageDecoder.ReadyForQuery(data)
-  ctx:on_ready(status)
+  ctx.on_ready(ctx._self, status)
 end
 
 local function on_terminate(fsm, event, ctx, data)
-  ctx:on_send(MessageEncoder.Terminate())
-  ctx:on_terminate()
+  ctx.on_send(ctx._self, MessageEncoder.Terminate())
+  ctx.on_terminate(ctx._self)
 end
 
 local function on_new_recordset(self, event, ctx, data)
@@ -194,35 +201,41 @@ local function on_new_recordset(self, event, ctx, data)
     typs[#typs + 1] = desc
   end
 
-  ctx:on_new_rs{cols, typs}
+  ctx.on_new_rs(ctx._self, {cols, typs})
 end
 
 local function on_data_row(self, event, ctx, data)
   local row = MessageDecoder.DataRow(data)
-  ctx:on_row(row)
+  ctx.on_row(ctx._self, row)
 end
 
 local function on_close_recordset(self, event, ctx, data)
   local cmd, rows = MessageDecoder.CommandComplete(data)
-  ctx:on_close_rs(rows)
+  ctx.on_close_rs(ctx._self, rows)
 end
 
 -- calls if execute empty query
 local function on_empty_recordset(self, event, ctx, data)
-  ctx:on_empty_rs()
+  ctx.on_empty_rs(ctx._self)
 end
 
 local function on_portal_suspended(self, event, ctx, data)
   MessageDecoder.PortalSuspended(data)
-  ctx:on_suspended()
+  ctx.on_suspended(ctx._self)
 end
 
 local function on_execute(self, event, ctx, data)
   local cmd, rows = MessageDecoder.CommandComplete(data)
-  ctx:on_exec(rows)
+  ctx.on_exec(ctx._self, rows)
 end
 
 local Base = ut.class() do
+
+function Base:__init(opt)
+  self._self = opt and opt.self or self
+
+  return self
+end
 
 function Base:reset()
   self._fsm:reset()
@@ -233,6 +246,10 @@ function Base:step(event, data)
   event, data = MessageDecoder.dispatch(event, data)
   -- print("RECV EVENT:", event)
   return self._fsm:step(event, self, data)
+end
+
+function Base:send(header, msg)
+  self.on_send(self._self, header, msg)
 end
 
 --- FSM need send data.
@@ -336,24 +353,24 @@ local fsm = InitFSM("setup")
 fsm:action("send_md5_auth",   function(self, event, ctx, data)
   local _, salt = MessageDecoder.AuthenticationMD5Password(data)
 
-  local user, password = ctx:on_need_password()
+  local user, password = ctx.on_need_password(ctx._self)
 
   local digest = md5.digest(password .. user)
   digest = "md5" .. md5.digest(digest .. salt)
 
-  ctx:on_send(MessageEncoder.PasswordMessage(digest))
+  ctx.on_send(ctx._self, MessageEncoder.PasswordMessage(digest))
 end)
 
 fsm:action("send_clear_auth", function(self, event, ctx, data)
   MessageDecoder.AuthenticationCleartextPassword(data)
 
-  local user, password = ctx:on_need_password()
-  ctx:on_send(MessageEncoder.PasswordMessage(password))
+  local user, password = ctx.on_need_password(ctx._self)
+  ctx.on_send(ctx._self, MessageEncoder.PasswordMessage(password))
 end)
 
 fsm:action("decode_pidkey",   function(self, event, ctx, data)
   local pid, key = MessageDecoder.BackendKeyData(data)
-  ctx:on_backend_key(pid, key)
+  ctx.on_backend_key(ctx._self, pid, key)
 end)
 
 fsm:state("setup", S("terminate", {
@@ -375,13 +392,15 @@ fsm:state("auth_done", S("terminate", {
   ReadyForQuery         = {nil,               "ready"    };
 }))
 
-function Setup:__init()
+function Setup:__init(...)
+  self = super(self, '__init', ...)
+
   self._fsm = fsm:clone():reset()
   return self
 end
 
 function Setup:start(ver, opt)
-  self:on_send(MessageEncoder.greet(ver, opt))
+  self:send(MessageEncoder.greet(ver, opt))
   self._fsm:start()
 end
 
@@ -413,13 +432,15 @@ fsm:state("error_recived", S("error_recived", {
   ReadyForQuery    = {nil,              "ready"         };
 }))
 
-function SimpleQuery:__init()
+function SimpleQuery:__init(...)
+  self = super(self, '__init', ...)
+
   self._fsm = fsm:clone():reset()
   return self
 end
 
 function SimpleQuery:start(qry)
-  self:on_send(MessageEncoder.Query(qry))
+  self:send(MessageEncoder.Query(qry))
   self._fsm:start()
 end
 
@@ -428,6 +449,8 @@ function SimpleQuery:on_new_rs(desc) end
 function SimpleQuery:on_row(desc) end
 
 function SimpleQuery:on_close_rs(rows) end
+
+function SimpleQuery:on_empty_rs() end
 
 function SimpleQuery:on_exec(rows) end
 
@@ -439,7 +462,9 @@ local fsm = InitFSM("wait")
 
 fsm:state("wait", S{})
 
-function Idle:__init()
+function Idle:__init(...)
+  self = super(self, '__init', ...)
+
   self._fsm = fsm:clone():reset()
   return self
 end
@@ -456,7 +481,7 @@ local fsm = InitFSM("wait")
 
 fsm:action("decode_params",  function(self, event, ctx, data)
   local typs = MessageDecoder.ParameterDescription(data)
-  ctx:on_params(typs)
+  ctx.on_params(ctx._self, typs)
 end)
 
 fsm:state("wait", S("describe", {
@@ -470,15 +495,17 @@ fsm:state("describe", S("describe", {
   ReadyForQuery         = {nil,               "ready"         };
 }))
 
-function Prepare:__init()
+function Prepare:__init(...)
+  self = super(self, '__init', ...)
+
   self._fsm = fsm:clone():reset()
   return self
 end
 
 function Prepare:start(name, sql, opt)
-  self:on_send(MessageEncoder.Parse(name, sql, opt))
-  self:on_send(MessageEncoder.Describe("S", name))
-  self:on_send(MessageEncoder.Sync())
+  self:send(MessageEncoder.Parse(name, sql, opt))
+  self:send(MessageEncoder.Describe("S", name))
+  self:send(MessageEncoder.Sync())
 
   self._fsm:start()
 end
@@ -528,13 +555,15 @@ fsm:state("wait_ready", S("wait_ready", {
 
 fsm:action("send_close", function(self, event, ctx, data)
   if ctx._portal ~= '' then
-    ctx:on_send(MessageEncoder.Close("P", ctx._portal))
+    ctx.on_send(ctx._self, MessageEncoder.Close("P", ctx._portal))
   end
   -- Send sync to get `ReadyForQuery`
-  ctx:on_send(MessageEncoder.Sync())
+  ctx.on_send(ctx._self, MessageEncoder.Sync())
 end)
 
-function Execute:__init()
+function Execute:__init(...)
+  self = super(self, '__init', ...)
+
   self._fsm = fsm:clone():reset()
   return self
 end
@@ -548,32 +577,37 @@ function Execute:start(describe, portal, name, formats, values, rows)
   -- in other case tehre may be no response from server.
   -- In my test without sync I did not get `BindComplete`
 
-  self:on_send(
+  self:send(
     MessageEncoder.Bind(portal, name, formats, values)
   )
 
   if describe then
-    self:on_send(
+    self:send(
       MessageEncoder.Describe("P", portal)
     )
   end
 
-  self:on_send(
+  self:send(
     MessageEncoder.Execute(portal, rows)
   )
 
-  self:on_send(MessageEncoder.Sync())
+  self:send(MessageEncoder.Sync())
 
 end
+
+function Execute:on_suspended() end
+
+function SimpleQuery:on_empty_rs() end
 
 end
 
 local MessageReader = ut.class() do
 
-function MessageReader:__init()
-  self._buf = ut.Buffer.new()
-  self._typ = nil
-  self._len = nil
+function MessageReader:__init(opt)
+  self._buf  = ut.Buffer.new()
+  self._typ  = nil
+  self._len  = nil
+  self._self = opt and opt.self or self
 
   return self
 end
@@ -600,7 +634,7 @@ function MessageReader:append(data)
   while true do
     local typ, msg = next_msg(self)
     if not typ then break end
-    local ret = self:on_message(typ, msg)
+    local ret = self.on_message(self._self, typ, msg)
     if not ret then break end
   end
 end

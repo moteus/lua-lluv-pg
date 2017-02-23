@@ -35,12 +35,41 @@ local ECANCELED = uv.error('LIBUV', uv.ECANCELED)
 
 local Connection = ut.class() do
 
+local function translate_desc(self, resultset, desc)
+  local types = desc[2]
+
+  if self._settings.decode then
+    for i = 1, #types do
+      local type_desc = types[i]
+      type_desc.decode = Converter.decoder(type_desc)
+    end
+  end
+
+  resultset.header = desc
+
+  return resultset
+end
+
+local function translate_data_row(self, resultset, row)
+  local types = resultset.header[2]
+
+  for i = 1, #types do
+    local type_desc = types[i]
+    if DataTypes.is_array(type_desc) then
+      row[i] = Array.decode(type_desc[3], row[i], type_desc.decode)
+    elseif type_desc.decode then
+      row[i] = type_desc.decode(row[i])
+    end
+  end
+
+  append(resultset, row)
+end
+
 function Connection:__init(cfg)
   self._ready   = false
   self._ee      = EventEmitter.new{self=self}
   self._status  = {}
   self._bkey    = {}
-  self._reader  = MessageReader.new()
   self._open_q  = nil
   self._close_q = nil
   self._queue   = nil
@@ -71,237 +100,260 @@ function Connection:__init(cfg)
     decode = cfg.decode; -- decode data
   }
 
-  local this = self
+  self._reader = MessageReader.new{self=self}
+  self._reader.on_message       = self._on_message
 
-  function this._on_send(fsm, header, msg)            this:send(header, msg)              end
+  self._setup = Setup.new{self=self}
+  self._setup.on_send           = self._on_send
+  self._setup.on_error          = self._on_error
+  self._setup.on_protocol_error = self._on_protocol_error
+  self._setup.on_terminate      = self._on_terminate
+  self._setup.on_status         = self._on_status
+  self._setup.on_backend_key    = self._on_backend_key
+  self._setup.on_notice         = self._on_notice
+  self._setup.on_notify         = self._on_notify
+  self._setup.on_need_password  = self._on_setup_need_password
+  self._setup.on_ready          = self._on_setup_ready
 
-  function this._on_protocol_error(fsm, err)          this._last_error = err; this._ee:emit('error', err) end
+  self._idle = Idle.new{self=self}
+  self._idle.on_send           = self._on_send
+  self._idle.on_protocol_error = self._on_protocol_error
+  self._idle.on_terminate      = self._on_terminate
+  self._idle.on_status         = self._on_status
+  self._idle.on_notice         = self._on_notice
+  self._idle.on_notify         = self._on_notify
 
-  function this._on_error(fsm, err)                   this._last_error = err; this._ee:emit('error', err) end
+  self._query = SimpleQuery.new{self=self}
+  self._query.on_send           = self._on_send
+  self._query.on_error          = self._on_error
+  self._query.on_protocol_error = self._on_protocol_error
+  self._query.on_terminate      = self._on_terminate
+  self._query.on_status         = self._on_status
+  self._query.on_backend_key    = self._on_backend_key
+  self._query.on_notice         = self._on_notice
+  self._query.on_notify         = self._on_notify
+  self._query.on_exec           = self._on_query_exec
+  self._query.on_empty_rs       = self._on_query_empty_rs
+  self._query.on_new_rs         = self._on_query_new_rs
+  self._query.on_row            = self._on_query_row
+  self._query.on_close_rs       = self._on_query_close_rs
+  self._query.on_ready          = self._on_query_ready
 
-  function this._on_status(fsm, key, value)           this._status[key] = value this._ee:emit('status', key, value) end
+  self._prepare = Prepare.new{self=self}
+  self._prepare.on_send           = self._on_send
+  self._prepare.on_error          = self._on_error
+  self._prepare.on_protocol_error = self._on_protocol_error
+  self._prepare.on_terminate      = self._on_terminate
+  self._prepare.on_status         = self._on_status
+  self._prepare.on_backend_key    = self._on_backend_key
+  self._prepare.on_notice         = self._on_notice
+  self._prepare.on_notify         = self._on_notify
+  self._prepare.on_new_rs         = self._on_prepare_new_rs
+  self._prepare.on_params         = self._on_prepare_params
+  self._prepare.on_ready          = self._on_prepare_ready
 
-  function this._on_backend_key(fsm, pid, key, value) this._bkey = {pid = pid, key = key} end
-
-  function this._on_notice(fsm, note)                 this._ee:emit('notice', note) end
-
-  function this._on_notify(fsm, pid, name, payload)   this._ee:emit('notify', pid, name, payload) end
-
-  function this._on_terminate(fsm)
-    local callback = this._active.callback
-    if callback then
-      self:_reset_active_state()
-      uv.defer(callback, this, this._last_error, rs)
-    end
-    uv.defer(this.close, this, this._last_error)
-  end
-
-  function self._reader:on_message(typ, msg)
-    this._ee:emit('recv', typ, msg)
-
-    if not this._fsm then return true end
-
-    if not this._fsm:step(typ, msg) then
-      this._fsm = this._idle
-      return false
-    end
-
-    return true
-  end
-
-  function this._on_write_error(cli, err)
-    if err then 
-      if err ~= EOF then
-        self._ee:emit('error', err)
-      end
-      self:close(err)
-    end
-  end
-
-  self._on_write_handler = on_write_error
-  self._setup = Setup.new()
-  self._setup.on_send           = this._on_send
-  self._setup.on_error          = this._on_error
-  self._setup.on_protocol_error = this._on_protocol_error
-  self._setup.on_terminate      = this._on_terminate
-  self._setup.on_status         = this._on_status
-  self._setup.on_backend_key    = this._on_backend_key
-  self._setup.on_notice         = this._on_notice
-  self._setup.on_notify         = this._on_notify
-  self._setup.on_need_password  = function()
-    if not this._cnn_opt.password then error('no password') end
-    return this._pg_opt.user, this._cnn_opt.password
-  end
-  self._setup.on_ready          = function()
-    this._ready = true
-    this._ee:emit('ready', this._status)
-    call_q(this._open_q, this, nil, true)
-    uv.defer(this._next_query, this)
-  end
-
-  self._idle = Idle.new()
-  self._idle.on_send           = this._on_send
-  self._idle.on_protocol_error = this._on_protocol_error
-  self._idle.on_terminate      = this._on_terminate
-  self._idle.on_status         = this._on_status
-  self._idle.on_notice         = this._on_notice
-  self._idle.on_notify         = this._on_notify
-
-  self._query = SimpleQuery.new()
-  self._query.on_send           = this._on_send
-  self._query.on_error          = this._on_error
-  self._query.on_protocol_error = this._on_protocol_error
-  self._query.on_terminate      = this._on_terminate
-  self._query.on_status         = this._on_status
-  self._query.on_backend_key    = this._on_backend_key
-  self._query.on_notice         = this._on_notice
-  self._query.on_notify         = this._on_notify
-
-  self._prepare = Prepare.new()
-  self._prepare.on_send           = this._on_send
-  self._prepare.on_error          = this._on_error
-  self._prepare.on_protocol_error = this._on_protocol_error
-  self._prepare.on_terminate      = this._on_terminate
-  self._prepare.on_status         = this._on_status
-  self._prepare.on_backend_key    = this._on_backend_key
-  self._prepare.on_notice         = this._on_notice
-  self._prepare.on_notify         = this._on_notify
-
-  self._execute = Execute.new()
-  self._execute.on_send           = this._on_send
-  self._execute.on_error          = this._on_error
-  self._execute.on_protocol_error = this._on_protocol_error
-  self._execute.on_terminate      = this._on_terminate
-  self._execute.on_status         = this._on_status
-  self._execute.on_backend_key    = this._on_backend_key
-  self._execute.on_notice         = this._on_notice
-  self._execute.on_notify         = this._on_notify
-
-  local function translate_desc(self, resultset, desc)
-    local types = desc[2]
-
-    if self._settings.decode then
-      for i = 1, #types do
-        local type_desc = types[i]
-        type_desc.decode = Converter.decoder(type_desc)
-      end
-    end
-
-    resultset.header = desc
-
-    return resultset
-  end
-
-  local function translate_data_row(self, resultset, row)
-    local types = resultset.header[2]
-
-    for i = 1, #types do
-      local type_desc = types[i]
-      if DataTypes.is_array(type_desc) then
-        row[i] = Array.decode(type_desc[3], row[i], type_desc.decode)
-      elseif type_desc.decode then
-        row[i] = type_desc.decode(row[i])
-      end
-    end
-
-    append(resultset, row)
-  end
-
-  function self._query:on_exec(rows)
-    local resultset = this._active.resultset
-    append(resultset, {rows})
-  end
-
-  function self._query:on_empty_rs()
-    local resultset = this._active.resultset
-    append(resultset, {})
-  end
-
-  function self._query:on_new_rs(desc)
-    local resultset = this._active.resultset
-    append(resultset, translate_desc(this, {}, desc))
-  end
-
-  function self._query:on_row(row)
-    local resultset = this._active.resultset
-    resultset = resultset[#resultset]
-    translate_data_row(self, resultset, row)
-  end
-
-  function self._query:on_close_rs(rows) end
-
-  function self._query:on_ready()
-    local callback  = this._active.callback
-    local resultset = this._active.resultset
-
-    this:_reset_active_state()
-
-    local count = #resultset
-    if count <= 1 then resultset = resultset[1] end
-
-    uv.defer(callback, this, this._last_error, resultset, count)
-    uv.defer(this._next_query, this)
-  end
-
-  ---------------------------------------------------------
-
-  function self._prepare:on_new_rs(desc)
-    this._active.resultset = translate_desc(this, {}, desc)
-  end
-
-  function self._prepare:on_params(params)
-    this._active.params = params
-  end
-
-  function self._prepare:on_ready()
-    local params    = this._active.params
-    local callback  = this._active.callback
-    local resultset = this._active.resultset
-
-    this:_reset_active_state()
-
-    uv.defer(callback, this, this._last_error, resultset, params)
-  end
-
-  ---------------------------------------------------------
-
-  function self._execute:on_exec(rows)
-    local resultset = this._active.resultset
-    if not resultset.header then
-      append(resultset, rows)
-    end
-  end
-
-  function self._execute:on_new_rs(desc)
-    local resultset = this._active.resultset
-    translate_desc(this, resultset, desc)
-  end
-
-  function self._execute:on_row(row)
-    local resultset = this._active.resultset
-    translate_data_row(self, resultset, row)
-  end
-
-  function self._execute:on_close_rs(rows) end
-
-  function self._execute:on_empty_rs() end
-
-  function self._execute:on_suspended()
-    local resultset = this._active.resultset
-    resultset.suspended = true
-  end
-
-  function self._execute:on_ready()
-    local callback  = this._active.callback
-    local resultset = this._active.resultset
-
-    this:_reset_active_state()
-
-    uv.defer(callback, this, this._last_error, resultset, 1)
-    uv.defer(this._next_query, this)
-  end
+  self._execute = Execute.new{self=self}
+  self._execute.on_send           = self._on_send
+  self._execute.on_error          = self._on_error
+  self._execute.on_protocol_error = self._on_protocol_error
+  self._execute.on_terminate      = self._on_terminate
+  self._execute.on_status         = self._on_status
+  self._execute.on_backend_key    = self._on_backend_key
+  self._execute.on_notice         = self._on_notice
+  self._execute.on_notify         = self._on_notify
+  self._execute.on_exec           = self._on_execute_exec
+  self._execute.on_new_rs         = self._on_execute_new_rs
+  self._execute.on_row            = self._on_execute_row
+  self._execute.on_close_rs       = self._on_execute_close_rs
+  self._execute.on_empty_rs       = self._on_execute_empty_rs
+  self._execute.on_suspended      = self._on_execute_suspended
+  self._execute.on_ready          = self._on_execute_ready
 
   return self
+end
+
+do -- FSM Events
+
+function Connection:_on_send(header, msg)
+  self:send(header, msg)
+end
+
+function Connection:_on_protocol_error(err)
+  self._last_error = err
+  self._ee:emit('error', err)
+end
+
+function Connection:_on_error(err)
+  self._last_error = err
+  self._ee:emit('error', err)
+end
+
+function Connection:_on_status(key, value)
+  self._status[key] = value
+  self._ee:emit('status', key, value)
+end
+
+function Connection:_on_backend_key(pid, key, value)
+  self._bkey = {pid = pid, key = key}
+end
+
+function Connection:_on_notice(note)
+  self._ee:emit('notice', note)
+end
+
+function Connection:_on_notify(pid, name, payload)
+  self._ee:emit('notify', pid, name, payload)
+end
+
+function Connection:_on_terminate()
+  local callback = self._active.callback
+  if callback then
+    self:_reset_active_state()
+    uv.defer(callback, self, self._last_error, rs)
+  end
+  uv.defer(self.close, self, self._last_error)
+end
+
+function Connection:_on_message(typ, msg)
+  self._ee:emit('recv', typ, msg)
+
+  if not self._fsm then return true end
+
+  if not self._fsm:step(typ, msg) then
+    self._fsm = self._idle
+    return false
+  end
+
+  return true
+end
+
+function Connection:_on_write_error(err)
+  if err then 
+    if err ~= EOF then
+      self._ee:emit('error', err)
+    end
+    self:close(err)
+  end
+end
+
+do -- Setup
+
+function Connection:_on_setup_need_password()
+  if not self._cnn_opt.password then error('no password') end
+  return self._pg_opt.user, self._cnn_opt.password
+end
+
+function Connection:_on_setup_ready()
+  self._ready = true
+  self._ee:emit('ready', self._status)
+  call_q(self._open_q, self, nil, true)
+  uv.defer(self._next_query, self)
+end
+
+end
+
+do -- Simple Query
+
+function Connection:_on_query_exec(rows)
+  local resultset = self._active.resultset
+  append(resultset, {rows})
+end
+
+function Connection:_on_query_empty_rs()
+  local resultset = self._active.resultset
+  append(resultset, {})
+end
+
+function Connection:_on_query_new_rs(desc)
+  local resultset = self._active.resultset
+  append(resultset, translate_desc(self, {}, desc))
+end
+
+function Connection:_on_query_row(row)
+  local resultset = self._active.resultset
+  resultset = resultset[#resultset]
+  translate_data_row(self, resultset, row)
+end
+
+function Connection:_on_query_close_rs(rows) end
+
+function Connection:_on_query_ready()
+  local callback  = self._active.callback
+  local resultset = self._active.resultset
+
+  self:_reset_active_state()
+
+  local count = #resultset
+  if count <= 1 then resultset = resultset[1] end
+
+  uv.defer(callback, self, self._last_error, resultset, count)
+  uv.defer(self._next_query, self)
+end
+
+end
+
+do -- Prepare
+
+function Connection:_on_prepare_new_rs(desc)
+  self._active.resultset = translate_desc(self, {}, desc)
+end
+
+function Connection:_on_prepare_params(params)
+  self._active.params = params
+end
+
+function Connection:_on_prepare_ready()
+  local params    = self._active.params
+  local callback  = self._active.callback
+  local resultset = self._active.resultset
+
+  self:_reset_active_state()
+
+  uv.defer(callback, self, self._last_error, resultset, params)
+end
+
+end
+
+do -- Execute
+
+function Connection:_on_execute_exec(rows)
+  local resultset = self._active.resultset
+  if not resultset.header then
+    append(resultset, rows)
+  end
+end
+
+function Connection:_on_execute_new_rs(desc)
+  local resultset = self._active.resultset
+  translate_desc(self, resultset, desc)
+end
+
+function Connection:_on_execute_row(row)
+  local resultset = self._active.resultset
+  translate_data_row(self, resultset, row)
+end
+
+function Connection:_on_execute_close_rs(rows) end
+
+function Connection:_on_execute_empty_rs() end
+
+function Connection:_on_execute_suspended()
+  local resultset = self._active.resultset
+  resultset.suspended = true
+end
+
+function Connection:_on_execute_ready()
+  local callback  = self._active.callback
+  local resultset = self._active.resultset
+
+  self:_reset_active_state()
+
+  uv.defer(callback, self, self._last_error, resultset, 1)
+  uv.defer(self._next_query, self)
+end
+
+end
+
 end
 
 function Connection:connect(cb)
@@ -505,9 +557,13 @@ function Connection:connected()
   return not not self._ready
 end
 
+local function on_write_done(cli, err, self)
+  if err then self:_on_write_error(err) end
+end
+
 function Connection:send(header, data)
   self._ee:emit('send', header, data)
-  return self._cli:write({header, data}, self._on_write_error)
+  return self._cli:write({header, data}, on_write_done, self)
 end
 
 function Connection:on(...)
