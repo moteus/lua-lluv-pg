@@ -4,15 +4,9 @@ local FSM            = require "lluv.pg.utils.fsm"
 local MessageEncoder = require "lluv.pg.msg".encoder
 local MessageDecoder = require "lluv.pg.msg".decoder
 local DataTypes      = require "lluv.pg.types"
+local utils          = require "lluv.pg.utils"
 
-local function append(t, v) t[#t + 1] = v return t end
-
-local function super(self, m, ...)
-  if self.__base and self.__base[m] then
-    return self.__base[m](self, ...)
-  end
-  return self
-end
+local append, super = utils.append, utils.super
 
 local ERROR_PG = "PostgreSQL" -- error category
 
@@ -590,7 +584,7 @@ end
 
 function Execute:on_suspended() end
 
-function SimpleQuery:on_empty_rs() end
+function Execute:on_empty_rs() end
 
 end
 
@@ -642,7 +636,7 @@ end
 local FSMReader = ut.class(MessageReader) do
 
 function FSMReader:__init(fsm)
-  MessageReader.__init(self)
+  self = super(self, '__init')
   self._fsm  = fsm
   self._done = false
   

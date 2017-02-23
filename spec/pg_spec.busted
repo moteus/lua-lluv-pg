@@ -6,10 +6,11 @@ local prequire = function(m)
   if ok then return m end
 end
 
-local uv   = require "lluv"
-local pg   = require "lluv.pg"
-local loop = require "lluv.busted.loop"
-local stp  = prequire"StackTracePlus"
+local uv    = require "lluv"
+local pg    = require "lluv.pg"
+local loop  = require "lluv.busted.loop"
+local stp   = prequire"StackTracePlus"
+local utils = require "lluv.pg.utils"
 
 local NULL = pg.NULL
 
@@ -18,18 +19,6 @@ setloop(loop)
 loop.set_timeout(5)
 
 loop.set_traceback(stp and stp.stacktrace or debug.traceback)
-
-local function deep_copy(t)
-  local o = {}
-  for k, v in pairs(t) do
-    if type(v) == "table" then
-      o[k] = deep_copy(v)
-    else
-      o[k] = v
-    end
-  end
-  return o
-end
 
 local CONFIG = {
   database = os.getenv'LLUV_PG_DBNAME' or 'test',
@@ -823,7 +812,7 @@ describe('pg query decode result', function()
 
   it('should execute simple query with decode recordsets in binary mode', function(done) async()
     local sql = string.gsub(sql, ',[^,]*$', '') -- remove float
-    local rs  = deep_copy(rs)
+    local rs  = utils.deep_copy(rs)
     table.remove(rs.header[1]) table.remove(rs[1])
 
     cnn:query(BINARY(sql), function(self, err, recordset, count) assert_nil(err)
@@ -833,7 +822,7 @@ describe('pg query decode result', function()
   end)
 
   before_each(function(done) async()
-    local config = deep_copy(CONFIG)
+    local config = utils.deep_copy(CONFIG)
     config.decode = true
 
     cnn = pg.new(config)

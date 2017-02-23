@@ -2,6 +2,7 @@ local uv     = require "lluv"
 local socket = require "lluv.luasocket"
 local ut     = require "lluv.utils"
 local FSM    = require "lluv.pg.fsm"
+local utils  = require "lluv.pg.utils"
 
 local Setup         = FSM.Setup
 local SimpleQuery   = FSM.SimpleQuery
@@ -10,7 +11,7 @@ local FSMReader     = FSM.FSMReader
 local Prepare       = FSM.Prepare
 local Execute       = FSM.Execute
 
-local function append(t, v) t[#t + 1] = v end
+local append, super = utils.append, utils.super
 
 local function NewPG(cfg)
   local opt = {

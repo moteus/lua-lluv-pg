@@ -1,33 +1,22 @@
-local uv            = require "lluv"
-local socket        = require "lluv.luasocket"
-local ut            = require "lluv.utils"
-local EventEmitter  = require "EventEmitter"
-local Setup         = require "lluv.pg.fsm".Setup
-local SimpleQuery   = require "lluv.pg.fsm".SimpleQuery
-local MessageReader = require "lluv.pg.fsm".MessageReader
-local Idle          = require "lluv.pg.fsm".Idle
-local Prepare       = require "lluv.pg.fsm".Prepare
-local Execute       = require "lluv.pg.fsm".Execute
-local NULL          = require "lluv.pg.msg".NULL
-local DataTypes     = require "lluv.pg.types"
-local Array         = require "lluv.pg.array"
-local Converter     = require "lluv.pg.converter"
-
+local uv             = require "lluv"
+local socket         = require "lluv.luasocket"
+local ut             = require "lluv.utils"
+local EventEmitter   = require "EventEmitter"
+local Setup          = require "lluv.pg.fsm".Setup
+local SimpleQuery    = require "lluv.pg.fsm".SimpleQuery
+local MessageReader  = require "lluv.pg.fsm".MessageReader
+local Idle           = require "lluv.pg.fsm".Idle
+local Prepare        = require "lluv.pg.fsm".Prepare
+local Execute        = require "lluv.pg.fsm".Execute
+local NULL           = require "lluv.pg.msg".NULL
+local DataTypes      = require "lluv.pg.types"
+local Array          = require "lluv.pg.array"
+local Converter      = require "lluv.pg.converter"
 local MessageEncoder = require "lluv.pg.msg".encoder
+local utils          = require "lluv.pg.utils"
 
-local function append(t, v) t[#t + 1] = v end
-
-local function call_q(q, ...)
-  while true do
-    local cb = q:pop()
-    if not cb then break end
-    cb(...)
-  end
-end
-
-local function is_callable(f)
-  return (type(f) == 'function') and f
-end
+local append, call_q, is_callable =
+  utils.append, utils.call_q, utils.is_callable
 
 local EOF       = uv.error("LIBUV", uv.EOF)
 local ENOTCONN  = uv.error('LIBUV', uv.ENOTCONN)
