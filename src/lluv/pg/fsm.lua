@@ -207,8 +207,9 @@ local function on_close_recordset(self, event, ctx, data)
   ctx:on_close_rs(rows)
 end
 
+-- calls if execute empty query
 local function on_empty_recordset(self, event, ctx, data)
-  ctx:on_close_rs(0)
+  ctx:on_empty_rs()
 end
 
 local function on_portal_suspended(self, event, ctx, data)
@@ -503,11 +504,11 @@ fsm:state("describing", S("closing", {
 
   -- Execute responses
   CommandComplete    = {"exec_complite",      "closing"       };
+  EmptyQueryResponse = {"empty_rs",           "closing"       };
 }))
 
 fsm:state("fetching", S("closing", {
   DataRow            = {"decode_row"                          };
-  EmptyQueryResponse = {"empty_rs",           "closing"       };
   PortalSuspended    = {"suspended",          "closing"       };
   CommandComplete    = {"close_rs",           "closing"       };
 }))

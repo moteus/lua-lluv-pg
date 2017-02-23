@@ -212,6 +212,11 @@ function Connection:__init(cfg)
     append(resultset, {rows})
   end
 
+  function self._query:on_empty_rs()
+    local resultset = this._active.resultset
+    append(resultset, {})
+  end
+
   function self._query:on_new_rs(desc)
     local resultset = this._active.resultset
     append(resultset, translate_desc(this, {}, desc))
@@ -276,6 +281,8 @@ function Connection:__init(cfg)
   end
 
   function self._execute:on_close_rs(rows) end
+
+  function self._execute:on_empty_rs() end
 
   function self._execute:on_suspended()
     local resultset = this._active.resultset

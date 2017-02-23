@@ -213,6 +213,43 @@ describe('pg query', function()
     end)
   end)
 
+  it('should execute simple query with single recordset and empty query', function(done) async()
+    local sql = "select 'hello' as f1, 'world' as f2;;"
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}};
+        {'hello', 'world'};
+      }, norm_rs(recordset))
+      done()
+    end)
+  end)
+
+  it('should execute simple query with empty recordset', function(done) async()
+    local sql = "select 'hello'::text as f1, 'world'::text as f2 where 1=0"
+
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.equal(1, count)
+      assert.same({
+        header = {{'f1', 'f2'}};
+      }, norm_rs(recordset))
+      done()
+    end)
+  end)
+
+  it('should execute empty simple query', function(done) async()
+    local sql = ""
+
+    cnn:query(sql, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.equal(1, count)
+      assert.same({}, norm_rs(recordset))
+      done()
+    end)
+  end)
+
   it('should execute simple query with rows affected', function(done) async()
     local sql = "insert into " .. TEST_TABLE_NAME .. "(f1, f2) values('hello', 'world')"
     cnn:query(sql, function(self, err, recordset, count)
@@ -479,6 +516,17 @@ describe('pg query', function()
       assert.same({
         header = {{'f1', 'f2'}};
       }, norm_rs(recordset))
+      done()
+    end)
+  end)
+
+  it('should execute empty extended query', function(done) async()
+    local sql = ""
+
+    cnn:query(sql, {}, function(self, err, recordset, count)
+      assert.equal(cnn, self) assert_nil(err)
+      assert.equal(1, count)
+      assert.same({}, norm_rs(recordset))
       done()
     end)
   end)
