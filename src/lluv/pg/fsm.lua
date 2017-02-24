@@ -257,11 +257,11 @@ function Base:on_notice(note) end
 
 ---
 --
-function Base:on_notify(pid, name, payload) end
+function Base:on_notify(pid, channel, payload) end
 
 --- Got unexpected message.
 --
-function Base:on_protocol_error() end
+function Base:on_protocol_error(err) end
 
 --- FSM done success (finit state)
 --
@@ -345,14 +345,14 @@ fsm:action("send_md5_auth",   function(self, event, ctx, data)
   local digest = md5.digest(password .. user)
   digest = "md5" .. md5.digest(digest .. salt)
 
-  ctx.on_send(ctx._self, MessageEncoder.PasswordMessage(digest))
+  ctx:send(MessageEncoder.PasswordMessage(digest))
 end)
 
 fsm:action("send_clear_auth", function(self, event, ctx, data)
   MessageDecoder.AuthenticationCleartextPassword(data)
 
   local user, password = ctx.on_need_password(ctx._self)
-  ctx.on_send(ctx._self, MessageEncoder.PasswordMessage(password))
+  ctx:send(MessageEncoder.PasswordMessage(password))
 end)
 
 fsm:action("decode_pidkey",   function(self, event, ctx, data)
@@ -364,7 +364,7 @@ fsm:state("setup", S("terminate", {
   BackendKeyData        = {"decode_pidkey"               };
   ReadyForQuery         = {nil,               "ready"    };
 
-  AuthenticationOk                 = {nil,               "auth_done"};
+  AuthenticationOk                 = {nil,                "auth_done"          };
   AuthenticationMD5Password        = {"send_md5_auth",    "wait_auth_response" };
   AuthenticationCleartextPassword  = {"send_clear_auth",  "wait_auth_response" };
 }))
@@ -542,10 +542,10 @@ fsm:state("wait_ready", S("wait_ready", {
 
 fsm:action("send_close", function(self, event, ctx, data)
   if ctx._portal ~= '' then
-    ctx.on_send(ctx._self, MessageEncoder.Close("P", ctx._portal))
+    ctx:send(MessageEncoder.Close("P", ctx._portal))
   end
   -- Send sync to get `ReadyForQuery`
-  ctx.on_send(ctx._self, MessageEncoder.Sync())
+  ctx:send(MessageEncoder.Sync())
 end)
 
 function Execute:__init(...)

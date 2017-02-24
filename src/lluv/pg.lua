@@ -197,6 +197,7 @@ end
 function Connection:_on_terminate()
   local callback = self._active.callback
   if callback then
+    --! @fixme pass recordset if exists
     self:_reset_active_state()
     uv.defer(callback, self, self._last_error, rs)
   end
@@ -216,7 +217,7 @@ function Connection:_on_message(typ, msg)
   return true
 end
 
-function Connection:_on_write_error(err)
+function Connection:_on_write_done(err)
   if err then 
     if err ~= EOF then
       self._ee:emit('error', err)
@@ -547,7 +548,7 @@ function Connection:connected()
 end
 
 local function on_write_done(cli, err, self)
-  if err then self:_on_write_error(err) end
+  if err then self:_on_write_done(err) end
 end
 
 function Connection:send(header, data)
