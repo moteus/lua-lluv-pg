@@ -842,3 +842,66 @@ describe('pg query decode result', function()
     done()
   end)
 end)
+
+describe('pg prepared query', function()
+  local cnn
+
+  it('should prepare 2 queries', function(done) async()
+    local n1, n2
+
+    cnn:prepare("select 'hello'::text as f1", function(self, err, name, recordset) assert_nil(err)
+      n1 = name
+      assert.match('.+', name)
+      assert.same({header = {{'f1'}}}, norm_rs(recordset))
+    end)
+
+    cnn:prepare("select 'world'::text as f2", function(self, err, name, recordset) assert_nil(err)
+      n2 = name
+      assert.match('.+', name)
+      assert.same({header = {{'f2'}}}, norm_rs(recordset))
+
+      uv.defer(function()
+        local called = {}
+        cnn:query_prepared(n1, {}, function(self, err, recordset) assert_nil(err)
+          assert.same({header = {{'f1'}},{'hello'}}, norm_rs(recordset))
+          called[1] = true;
+        end)
+        cnn:query('select 1::int4 as f3', {}, function(self, err, recordset) assert_nil(err)
+          assert.same({header = {{'f3'}},{'1'}}, norm_rs(recordset))
+          called[2] = true;
+        end)
+        cnn:query_prepared(n2, {}, function(self, err, recordset) assert_nil(err)
+          assert.same({header = {{'f2'}},{'world'}}, norm_rs(recordset))
+          called[3] = true;
+          assert.same({true, true, true}, called)
+          uv.defer(function()
+            cnn:unprepare(n1, function(self, err) assert_nil(err) end)
+            cnn:unprepare(n2, function(self, err) assert_nil(err) end)
+            cnn:unprepare(n1, function(self, err)
+              assert_nil(err)
+              done()
+            end)
+          end)
+        end)
+      end)
+    end)
+  end)
+
+  before_each(function(done) async()
+    cnn = pg.new(CONFIG)
+    cnn:connect(function(self, err) assert_nil(err)
+      done()
+    end)
+  end)
+
+  after_each(function(done) async()
+    if cnn and cnn:connected() then
+      cnn:close(function(self)
+        done()
+      end)
+      cnn = nil
+      return
+    end
+    done()
+  end)
+end)

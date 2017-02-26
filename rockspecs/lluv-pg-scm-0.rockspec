@@ -22,6 +22,7 @@ dependencies = {
   "struct >= 1.2",
   "lmd5",
   "null",
+  "luuid",
 }
 
 build = {

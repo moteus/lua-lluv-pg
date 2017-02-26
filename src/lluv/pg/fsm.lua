@@ -588,6 +588,35 @@ function Execute:on_empty_rs() end
 
 end
 
+local Close = ut.class(Base) do
+
+local fsm = InitFSM("wait")
+
+fsm:state("wait", S{
+  CloseComplete         = {};
+  ReadyForQuery         = {nil,     "ready" };
+})
+
+function Close:__init(...)
+  self = super(self, '__init', ...)
+
+  self._fsm = fsm:clone():reset()
+  return self
+end
+
+-- `P` portal
+-- `S` prepared statement
+function Close:start(typ, name)
+  assert(typ == 'S' or typ == 'P')
+
+  self._fsm:start()
+  self:send(MessageEncoder.Close(typ, name))
+  -- Send sync to get `ReadyForQuery`
+  self:send(MessageEncoder.Sync())
+end
+
+end
+
 local MessageReader = ut.class() do
 
 function MessageReader:__init(opt)
@@ -669,6 +698,7 @@ return{
   Idle          = Idle;
   Prepare       = Prepare;
   Execute       = Execute;
+  Close         = Close;
 
   MessageReader = MessageReader;
   FSMReader     = FSMReader;

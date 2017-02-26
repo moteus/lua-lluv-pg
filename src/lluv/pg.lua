@@ -8,12 +8,18 @@ local MessageReader  = require "lluv.pg.fsm".MessageReader
 local Idle           = require "lluv.pg.fsm".Idle
 local Prepare        = require "lluv.pg.fsm".Prepare
 local Execute        = require "lluv.pg.fsm".Execute
+local Close          = require "lluv.pg.fsm".Close
 local NULL           = require "lluv.pg.msg".NULL
 local DataTypes      = require "lluv.pg.types"
 local Array          = require "lluv.pg.array"
 local Converter      = require "lluv.pg.converter"
 local MessageEncoder = require "lluv.pg.msg".encoder
 local utils          = require "lluv.pg.utils"
+local uuid           = require "uuid"
+
+local function gen_name()
+  return uuid.new():gsub('%-', '')
+end
 
 local append, call_q, is_callable =
   utils.append, utils.call_q, utils.is_callable
@@ -22,6 +28,34 @@ local EOF       = uv.error("LIBUV", uv.EOF)
 local ENOTCONN  = uv.error('LIBUV', uv.ENOTCONN)
 local ECANCELED = uv.error('LIBUV', uv.ECANCELED)
 
+local Decoders = ut.class() do
+
+function Decoders:__init()
+  self._decoders = {
+    [0] = {};
+    [1] = {};
+  }
+
+  self._types = {}
+
+  return self
+end
+
+function Decoders:register(mode, typ, decoder)
+  self._decoders[mode][typ] = decoder
+end
+
+function Decoders:decoder(desc)
+  local name, oid, mode = desc[1], desc[2], desc[3]
+  local fn = self._decoders[mode][name] or self._decoders[mode][oid]
+  if not fn then
+    fn = Converter.decoder(desc)
+  end
+  return fn
+end
+
+end
+
 local Connection = ut.class() do
 
 local function translate_desc(self, resultset, desc)
@@ -29,8 +63,7 @@ local function translate_desc(self, resultset, desc)
 
   if self._settings.decode then
     for i = 1, #types do
-      local type_desc = types[i]
-      type_desc.decode = Converter.decoder(type_desc)
+      types[i].decode = self._decoders:decoder(types[i])
     end
   end
 
@@ -55,14 +88,15 @@ local function translate_data_row(self, resultset, row)
 end
 
 function Connection:__init(cfg)
-  self._ready   = false
-  self._ee      = EventEmitter.new{self=self}
-  self._status  = {}
-  self._bkey    = {}
-  self._open_q  = nil
-  self._close_q = nil
-  self._queue   = nil
-  self._active  = {
+  self._ready    = false
+  self._ee       = EventEmitter.new{self=self}
+  self._decoders = Decoders.new()
+  self._status   = {}
+  self._bkey     = {}
+  self._open_q   = nil
+  self._close_q  = nil
+  self._queue    = nil
+  self._active   = {
     resultset = nil;
     callback  = nil;
     params    = nil;
@@ -89,10 +123,11 @@ function Connection:__init(cfg)
     decode = cfg.decode; -- decode data
   }
 
-  self._reader = MessageReader.new{self=self}
+  self._reader = MessageReader.new{self=self} do
   self._reader.on_message       = self._on_message
+  end
 
-  self._setup = Setup.new{self=self}
+  self._setup = Setup.new{self=self} do
   self._setup.on_send           = self._on_send
   self._setup.on_error          = self._on_error
   self._setup.on_protocol_error = self._on_protocol_error
@@ -103,16 +138,18 @@ function Connection:__init(cfg)
   self._setup.on_notify         = self._on_notify
   self._setup.on_need_password  = self._on_setup_need_password
   self._setup.on_ready          = self._on_setup_ready
+  end
 
-  self._idle = Idle.new{self=self}
+  self._idle = Idle.new{self=self} do
   self._idle.on_send           = self._on_send
   self._idle.on_protocol_error = self._on_protocol_error
   self._idle.on_terminate      = self._on_terminate
   self._idle.on_status         = self._on_status
   self._idle.on_notice         = self._on_notice
   self._idle.on_notify         = self._on_notify
+  end
 
-  self._query = SimpleQuery.new{self=self}
+  self._query = SimpleQuery.new{self=self} do
   self._query.on_send           = self._on_send
   self._query.on_error          = self._on_error
   self._query.on_protocol_error = self._on_protocol_error
@@ -127,8 +164,9 @@ function Connection:__init(cfg)
   self._query.on_row            = self._on_query_row
   self._query.on_close_rs       = self._on_query_close_rs
   self._query.on_ready          = self._on_query_ready
+  end
 
-  self._prepare = Prepare.new{self=self}
+  self._prepare = Prepare.new{self=self} do
   self._prepare.on_send           = self._on_send
   self._prepare.on_error          = self._on_error
   self._prepare.on_protocol_error = self._on_protocol_error
@@ -140,8 +178,9 @@ function Connection:__init(cfg)
   self._prepare.on_new_rs         = self._on_prepare_new_rs
   self._prepare.on_params         = self._on_prepare_params
   self._prepare.on_ready          = self._on_prepare_ready
+  end
 
-  self._execute = Execute.new{self=self}
+  self._execute = Execute.new{self=self} do
   self._execute.on_send           = self._on_send
   self._execute.on_error          = self._on_error
   self._execute.on_protocol_error = self._on_protocol_error
@@ -157,6 +196,17 @@ function Connection:__init(cfg)
   self._execute.on_empty_rs       = self._on_execute_empty_rs
   self._execute.on_suspended      = self._on_execute_suspended
   self._execute.on_ready          = self._on_execute_ready
+  end
+
+  self._close = Close.new{self=self} do
+  self._close.on_send           = self._on_send
+  self._close.on_protocol_error = self._on_protocol_error
+  self._close.on_terminate      = self._on_terminate
+  self._close.on_status         = self._on_status
+  self._close.on_notice         = self._on_notice
+  self._close.on_notify         = self._on_notify
+  self._close.on_ready          = self._on_close_ready
+  end
 
   return self
 end
@@ -344,6 +394,19 @@ end
 
 end
 
+do -- Close
+
+function Connection:_on_close_ready()
+  local callback  = self._active.callback
+
+  self:_reset_active_state()
+
+  uv.defer(callback, self, self._last_error)
+  uv.defer(self._next_query, self)
+end
+
+end
+
 end
 
 function Connection:connect(cb)
@@ -431,6 +494,37 @@ function Connection:query(...)
   return self:_next_query()
 end
 
+function Connection:query_prepared(...)
+  if not self._cli then
+    local cb = is_callable(select(-1, ...))
+    return uv.defer(cb, self, ENOTCONN)
+  end
+
+  self._queue:push{'execute', ...}
+
+  return self:_next_query()
+end
+
+function Connection:prepare(sql, cb)
+  if not self._cli then
+    return uv.defer(cb, self, ENOTCONN)
+  end
+
+  self._queue:push{'prepare', gen_name(), sql, cb}
+
+  return self:_next_query()
+end
+
+function Connection:unprepare(name, cb)
+  if not self._cli then
+    return uv.defer(cb, self, ENOTCONN)
+  end
+
+  self._queue:push{'unprepare', name, cb}
+
+  return self:_next_query()
+end
+
 function Connection:_next_query()
   -- connection already execute query so we have to wait
   if self._fsm ~= self._idle then
@@ -445,13 +539,34 @@ function Connection:_next_query()
   local action = args[1]
 
   if action == 'query' then
-    sql, params, cb = args[2], args[3], args[4]
+    local sql, params, cb = args[2], args[3], args[4]
     if is_callable(params) then
       cb, params = params
       return self:_next_simple_query(sql, cb)
     end
     return self:_next_extended_query(sql, params, cb)
   end
+
+  if action == 'prepare' then
+    local name, sql, cb = args[2], args[3], args[4]
+    self:_prepare_query(name, sql, function(self, err, ...)
+      uv.defer(self._next_query, self)
+
+      if err then return uv.defer(cb, self, err) end
+      uv.defer(cb, self, err, name, ...)
+    end)
+  end
+
+  if action == 'unprepare' then
+    local name, cb = args[2], args[3]
+    self:_unprepare_query(name, cb)
+  end
+
+  if action == 'execute' then
+    local name, params, cb = args[2], args[3], args[4]
+    self:_execute_query(name, params, nil, cb)
+  end
+
 end
 
 function Connection:_next_simple_query(sql, cb)
@@ -484,6 +599,16 @@ function Connection:_prepare_query(name, sql, cb)
   self._active.params    = nil
 
   self._fsm:start(name, sql)
+end
+
+function Connection:_unprepare_query(name, cb)
+  self._fsm = self._close:reset()
+
+  self._active.callback  = cb
+  self._active.resultset = nil
+  self._active.params    = nil
+
+  self._fsm:start('S', name, sql)
 end
 
 function Connection:_execute_query(name, params, resultset, cb)

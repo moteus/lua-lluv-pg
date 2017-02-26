@@ -29,6 +29,11 @@ matrix:
     #   env: LUA="lua 5.1"
     #   os: osx
 
+addons:
+  apt:
+    packages:
+      - uuid-dev 
+
 services:
   - postgresql
 
