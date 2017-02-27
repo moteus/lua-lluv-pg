@@ -1,7 +1,13 @@
 local struct_unpack, struct_pack
 
 if string.pack then -- Lua 5.3
-  struct_unpack, struct_pack, struct_size = string.unpack, string.pack
+  struct_unpack = function(fmt, ...)
+    return string.unpack(string.gsub(fmt, 's', 'z'), ...)
+  end
+
+  struct_pack = function(fmt, ...)
+    return string.pack(string.gsub(fmt, 's', 'z'), ...)
+  end
 elseif not jit then -- Lua 5.1, 5.2
   local struct = require "struct"
   struct_unpack, struct_pack, struct_size = struct.unpack, struct.pack
