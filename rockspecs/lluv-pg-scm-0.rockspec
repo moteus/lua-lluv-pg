@@ -35,6 +35,7 @@ build = {
     [ 'lluv.pg.array'     ] = 'src/lluv/pg/array.lua',
     [ 'lluv.pg.co'        ] = 'src/lluv/pg/co.lua',
     [ 'lluv.pg.converter' ] = 'src/lluv/pg/converter.lua',
+    [ 'lluv.pg.error'     ] = 'src/lluv/pg/error.lua',
     [ 'lluv.pg.fsm'       ] = 'src/lluv/pg/fsm.lua',
     [ 'lluv.pg.msg'       ] = 'src/lluv/pg/msg.lua',
     [ 'lluv.pg.types'     ] = 'src/lluv/pg/types.lua',
