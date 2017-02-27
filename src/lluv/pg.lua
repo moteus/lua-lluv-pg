@@ -581,13 +581,13 @@ end
 
 function Connection:_next_extended_query(sql, params, cb)
   local statement_name = ''
-  self:_prepare_query(statement_name, sql, function(self, err, rs, formats)
+  self:_prepare_query(statement_name, sql, function(self, err, recordset)
     if err then
       uv.defer(self._next_query, self)
       return uv.defer(cb, self, err)
     end
 
-    return self:_execute_query(statement_name, params, rs, cb)
+    return self:_execute_query(statement_name, params, recordset, cb)
   end)
 end
 
