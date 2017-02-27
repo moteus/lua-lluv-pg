@@ -1,5 +1,6 @@
 local md5            = require "md5"
 local ut             = require "lluv.utils"
+local struct         = require "lluv.pg.utils.bin"
 local FSM            = require "lluv.pg.utils.fsm"
 local MessageEncoder = require "lluv.pg.msg".encoder
 local MessageDecoder = require "lluv.pg.msg".decoder
