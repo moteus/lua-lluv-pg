@@ -2,7 +2,7 @@ local struct_unpack, struct_pack
 
 if string.pack then -- Lua 5.3
   struct_unpack, struct_pack, struct_size = string.unpack, string.pack
-elseif not jit then -- Lua 5.1, 5.3
+elseif not jit then -- Lua 5.1, 5.2
   local struct = require "struct"
   struct_unpack, struct_pack, struct_size = struct.unpack, struct.pack
 else -- LuaJIT
@@ -10,6 +10,19 @@ else -- LuaJIT
 local unpack = unpack or table.unpack
 
 local bit = require "bit"
+
+local is_bit_has_sign = bit.bor(0xFFFFFFFF, 0xFFFFFFFF) ~= 0xFFFFFFFF
+
+local lshift
+if is_bit_has_sign then
+lshift = function(n, p)
+  return n * 2^p
+end
+else 
+lshift = function(n, p)
+  return bit.lshift(n, p)
+end
+end
 
 local function sign1(n)
   if n >= 0x80 then
@@ -89,7 +102,7 @@ local function read_be_uint4(str, pos)
   local a, b
   a, pos = read_be_uint2(str, pos)
   b, pos = read_be_uint2(str, pos)
-  return bit.lshift(a, 16) + b, pos
+  return lshift(a, 16) + b, pos
 end
 
 local function read_be_int4(str, pos)
@@ -103,7 +116,7 @@ local function read_le_uint4(str, pos)
   local a, b
   a, pos = read_le_uint2(str, pos)
   b, pos = read_le_uint2(str, pos)
-  return a + bit.lshift(b, 16), pos
+  return a + lshift(b, 16), pos
 end
 
 local function read_le_int4(str, pos)
@@ -200,8 +213,6 @@ end
 local function pack_zstr(s)
   return s .. '\0'
 end
-
-local function printf(...) print(string.format(...)) end
 
 local sunpack do
 

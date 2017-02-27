@@ -19,7 +19,7 @@ dependencies = {
   "lua >= 5.1, < 5.4",
   "lluv > 0.1.1",
   "eventemitter",
-  "struct >= 1.2",
+  -- "struct >= 1.2",
   "lmd5",
   "null",
   "luuid",

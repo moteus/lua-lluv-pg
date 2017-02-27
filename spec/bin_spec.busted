@@ -1,10 +1,16 @@
 io.stdout:setvbuf'no';io.stderr:setvbuf'no';
 package.path = "..\\src\\?.lua;" .. package.path
 
-local struct = require "struct"
-local bin    = require "lluv.pg.utils.bin"
+local prequire = function(m)
+  local ok, m = pcall(require, m)
+  if ok then return m end
+end
 
-describe("test struct", function()
+-- seems Lua struct has problem with Lua 5.3
+local struct = prequire "struct"
+local bin    = require  "lluv.pg.utils.bin"
+
+if struct then describe("test struct", function()
   local function check_unpack(fmt, int)
     local s = struct.pack(fmt, int)
     local a = struct.unpack(fmt, s)
@@ -208,4 +214,4 @@ describe("test struct", function()
     assert.equal(#s + 1,pos)
   end)
 
-end)
+end) end
