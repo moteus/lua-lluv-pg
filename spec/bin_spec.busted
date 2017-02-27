@@ -24,6 +24,20 @@ if struct then describe("test struct", function()
     return a, b
   end
 
+  local function build_unpack_int_test(fmt, max, step) return function()
+    for i = 0, max, step do
+      local a, b = check_unpack(fmt, i)
+      assert.equal(a, b)
+    end
+  end end
+
+  local function build_pack_int_test(fmt, max, step) return function()
+    for i = 0, max, step do
+      local a, b = check_pack(fmt, i)
+      assert.equal(a, b)
+    end
+  end end
+
   it('should unpack zerostring', function()
     local a, b = check_unpack('s', 'hello')
     assert.equal(a, b)
@@ -34,145 +48,37 @@ if struct then describe("test struct", function()
     assert.equal(a, b)
   end)
 
-  it('should unpack uint8', function()
-    for i = 0, 0xFF do
-      local a, b = check_unpack('B', i)
-      assert.equal(a, b)
-    end
-  end)
+  it('should unpack uint8',                build_unpack_int_test('B',    0xFF,        1))
+  it('should unpack int8',                 build_unpack_int_test('b',    0xFF,        1))
+  it('should unpack int8',                 build_unpack_int_test('b',   -0xFF,       -1))
+  it('should unpack uint16 big endian',    build_unpack_int_test('>I2',  0xFFFF,      0xFF))
+  it('should unpack int16 big endian',     build_unpack_int_test('>i2',  0xFFFF,      0xFF))
+  it('should unpack int16 big endian',     build_unpack_int_test('>i2', -0xFFFF,     -0xFF))
+  it('should unpack uint16 little endian', build_unpack_int_test('<I2',  0xFFFF,      0xFF))
+  it('should unpack int16 little endian',  build_unpack_int_test('<i2',  0xFFFF,      0xFF))
+  it('should unpack int16 little endian',  build_unpack_int_test('<i2', -0xFFFF,     -0xFF))
+  it('should unpack uint32 big endian',    build_unpack_int_test('>I4',  0xFFFFFFFF,  0xFFFF))
+  it('should unpack int32 big endian',     build_unpack_int_test('>i4',  0xFFFFFFFF,  0xFFFF))
+  it('should unpack int32 big endian',     build_unpack_int_test('>i4', -0xFFFFFFFF, -0xFFFF))
+  it('should unpack uint32 little endian', build_unpack_int_test('<I4',  0xFFFFFFFF,  0xFFFF))
+  it('should unpack int32 little endian',  build_unpack_int_test('<i4',  0xFFFFFFFF,  0xFFFF))
+  it('should unpack int32 little endian',  build_unpack_int_test('<i4', -0xFFFFFFFF, -0xFFFF))
 
-  it('should unpack int8', function()
-    for i = 0, 0xFF do
-      local a, b = check_unpack('b', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack uint16 big endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_unpack('>I2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack int16 big endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_unpack('>i2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack uint16 little endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_unpack('<I2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack int16 little endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_pack('<i2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack uint32 big endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_unpack('>I4', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack int32 big endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_unpack('>i4', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack uint32 little endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_unpack('<I4', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should unpack int32 little endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_unpack('<i4', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack uint8', function()
-    for i = 0, 0xFF do
-      local a, b = check_pack('B', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack int8', function()
-    for i = 0, 0xFF do
-      local a, b = check_pack('b', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack uint16 big endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_pack('>I2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack int16 big endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_pack('>i2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack uint16 little endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_pack('<I2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack int16 little endian', function()
-    for i = 0, 0xFFFF do
-      local a, b = check_pack('<i2', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack uint32 big endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_pack('>I4', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack int32 big endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_pack('>i4', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack uint32 little endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_pack('<I4', i)
-      assert.equal(a, b)
-    end
-  end)
-
-  it('should pack int32 little endian', function()
-    for i = 0, 0xFFFFFFFF, 0xFFFF do
-      local a, b = check_pack('<i4', i)
-      assert.equal(a, b)
-    end
-  end)
+  it('should pack uint8',                  build_pack_int_test('B',      0xFF,        1))
+  it('should pack int8',                   build_pack_int_test('b',      0xFF,        1))
+  it('should pack int8',                   build_pack_int_test('b',     -0xFF,       -1))
+  it('should pack uint16 big endian',      build_pack_int_test('>I2',    0xFFFF,      0xFF))
+  it('should pack int16 big endian',       build_pack_int_test('>i2',    0xFFFF,      0xFF))
+  it('should pack int16 big endian',       build_pack_int_test('>i2',   -0xFFFF,     -0xFF))
+  it('should pack uint16 little endian',   build_pack_int_test('<I2',    0xFFFF,      0xFF))
+  it('should pack int16 little endian',    build_pack_int_test('<i2',    0xFFFF,      0xFF))
+  it('should pack int16 little endian',    build_pack_int_test('<i2',   -0xFFFF,     -0xFF))
+  it('should pack uint32 big endian',      build_pack_int_test('>I4',    0xFFFFFFFF,  0xFFFF))
+  it('should pack int32 big endian',       build_pack_int_test('>i4',    0xFFFFFFFF,  0xFFFF))
+  it('should pack int32 big endian',       build_pack_int_test('>i4',   -0xFFFFFFFF, -0xFFFF))
+  it('should pack uint32 little endian',   build_pack_int_test('<I4',    0xFFFFFFFF,  0xFFFF))
+  it('should pack int32 little endian',    build_pack_int_test('<i4',    0xFFFFFFFF,  0xFFFF))
+  it('should pack int32 little endian',    build_pack_int_test('<i4',   -0xFFFFFFFF, -0xFFFF))
 
   it('should pack zerostring', function()
     local a, b = check_pack('s', 'hello')
