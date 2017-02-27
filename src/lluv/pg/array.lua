@@ -1,5 +1,5 @@
 local lpeg   = require "lpeg"
-local struct = require "struct"
+local struct = require "lluv.pg.utils.bin"
 local NULL   = require "lluv.pg.msg".NULL
 
 local P, S, V, Ct, C, Cs = lpeg.P, lpeg.S, lpeg.V, lpeg.Ct, lpeg.C, lpeg.Cs

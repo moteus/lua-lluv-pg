@@ -1,0 +1,213 @@
+io.stdout:setvbuf'no';io.stderr:setvbuf'no';
+package.path = "..\\src\\?.lua;" .. package.path
+
+local struct = require "struct"
+local bin    = require "lluv.pg.utils.bin"
+
+local pp = require "pp"
+
+describe("test struct", function()
+  local function check_unpack(fmt, int)
+    local s = struct.pack(fmt, int)
+    local a = struct.unpack(fmt, s)
+    local b = bin.unpack(fmt, s)
+    return a, b
+  end
+
+  local function check_pack(fmt, int)
+    local a = struct.pack(fmt, int)
+    local b = bin.pack(fmt, int)
+    return a, b
+  end
+
+  it('should unpack zerostring', function()
+    local a, b = check_unpack('s', 'hello')
+    assert.equal(a, b)
+  end)
+
+  it('should unpack chars', function()
+    local a, b = check_unpack('c2', 'hello')
+    assert.equal(a, b)
+  end)
+
+  it('should unpack uint8', function()
+    for i = 0, 0xFF do
+      local a, b = check_unpack('B', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack int8', function()
+    for i = 0, 0xFF do
+      local a, b = check_unpack('b', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack uint16 big endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_unpack('>I2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack int16 big endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_unpack('>i2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack uint16 little endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_unpack('<I2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack int16 little endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_pack('<i2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack uint32 big endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_unpack('>I4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack int32 big endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_unpack('>i4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack uint32 little endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_unpack('<I4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should unpack int32 little endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_unpack('<i4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack uint8', function()
+    for i = 0, 0xFF do
+      local a, b = check_pack('B', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack int8', function()
+    for i = 0, 0xFF do
+      local a, b = check_pack('b', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack uint16 big endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_pack('>I2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack int16 big endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_pack('>i2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack uint16 little endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_pack('<I2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack int16 little endian', function()
+    for i = 0, 0xFFFF do
+      local a, b = check_pack('<i2', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack uint32 big endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_pack('>I4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack int32 big endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_pack('>i4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack uint32 little endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_pack('<I4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack int32 little endian', function()
+    for i = 0, 0xFFFFFFFF, 0xFFFF do
+      local a, b = check_pack('<i4', i)
+      assert.equal(a, b)
+    end
+  end)
+
+  it('should pack zerostring', function()
+    local a, b = check_pack('s', 'hello')
+    assert.equal(a, b)
+  end)
+
+  it('should pack chars', function()
+    local a, b = check_pack('c2', 'hello')
+    assert.equal(a, b)
+  end)
+
+  it('should unpack complex pattern', function()
+    local fmt = '>sc1I2i4<i2B'
+    local s = struct.pack(fmt,
+      'hello', 'a', 0xAABB, -15, -25, 241
+    )
+    local a, b, c, d, e, f, pos = bin.unpack(fmt, s)
+    assert.equal('hello', a)
+    assert.equal('a',     b)
+    assert.equal(0xAABB,  c)
+    assert.equal(-15,     d)
+    assert.equal(-25,     e)
+    assert.equal(241,     f)
+    assert.equal(#s + 1,pos)
+  end)
+
+  it('should pack complex pattern', function()
+    local fmt = '>sc1I2i4<i2B'
+    local s = bin.pack(fmt,
+      'hello', 'a', 0xAABB, -15, -25, 241
+    )
+    local a, b, c, d, e, f, pos = struct.unpack(fmt, s)
+    assert.equal('hello', a)
+    assert.equal('a',     b)
+    assert.equal(0xAABB,  c)
+    assert.equal(-15,     d)
+    assert.equal(-25,     e)
+    assert.equal(241,     f)
+    assert.equal(#s + 1,pos)
+  end)
+
+end)

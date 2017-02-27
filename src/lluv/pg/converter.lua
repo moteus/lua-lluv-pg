@@ -3,7 +3,7 @@ local prequire = function(m)
   if ok then return m end
 end
 
-local struct = require "struct"
+local struct = require "lluv.pg.utils.bin"
 local cjson  = prequire"cjson"
 
 local function unpack_int(n)
@@ -41,12 +41,14 @@ end
 local decode_float = function(n)
   assert( (n == 4) or (n == 8) )
 
+  --[[
   local fmt
   if n == struct.size('f') then
     fmt = 'f'
   elseif n == struct.size('d') then
     fmt = 'f'
   end
+  --]]
 
   local bin
   if not fmt then
@@ -64,12 +66,14 @@ end
 local encode_float = function(n)
   assert( (n == 4) or (n == 8) )
 
+  --[[
   local fmt
   if n == struct.size('f') then
     fmt = 'f'
   elseif n == struct.size('d') then
     fmt = 'f'
   end
+  --]]
 
   local bin
   if not fmt then

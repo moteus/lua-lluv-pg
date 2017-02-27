@@ -1,5 +1,5 @@
 local ut     = require "lluv.utils"
-local struct = require "struct"
+local struct = require "lluv.pg.utils.bin"
 local NULL   = require "null".null
 
 local unpack = unpack or table.unpack

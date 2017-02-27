@@ -16,15 +16,15 @@ matrix:
     # - compiler: ": Lua52"
     #   env: LUA="lua 5.2"
     #   os: linux
-    # - compiler: ": Lua53"
-    #   env: LUA="lua 5.3"
-    #   os: linux
+    - compiler: ": Lua53"
+      env: LUA="lua 5.3"
+      os: linux
     # - compiler: ": LuaJIT20"
     #   env: LUA="luajit 2.0"
     #   os: linux
-    # - compiler: ": LuaJIT21"
-    #   env: LUA="luajit 2.1"
-    #   os: linux
+    - compiler: ": LuaJIT21"
+      env: LUA="luajit 2.1"
+      os: linux
     # - compiler: ": Lua51-osx"
     #   env: LUA="lua 5.1"
     #   os: osx

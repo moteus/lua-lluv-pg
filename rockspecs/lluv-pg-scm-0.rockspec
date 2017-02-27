@@ -40,6 +40,7 @@ build = {
     [ 'lluv.pg.msg'       ] = 'src/lluv/pg/msg.lua',
     [ 'lluv.pg.types'     ] = 'src/lluv/pg/types.lua',
     [ 'lluv.pg.utils'     ] = 'src/lluv/pg/utils.lua',
+    [ 'lluv.pg.utils.bin' ] = 'src/lluv/pg/utils/bin.lua',
     [ 'lluv.pg.utils.fsm' ] = 'src/lluv/pg/utils/fsm.lua',
   };
 }
