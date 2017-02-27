@@ -4,8 +4,6 @@ package.path = "..\\src\\?.lua;" .. package.path
 local struct = require "struct"
 local bin    = require "lluv.pg.utils.bin"
 
-local pp = require "pp"
-
 describe("test struct", function()
   local function check_unpack(fmt, int)
     local s = struct.pack(fmt, int)
