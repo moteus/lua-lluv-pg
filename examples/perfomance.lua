@@ -109,7 +109,7 @@ local function lluv_perform(query_count, sql)
     if counter == 0 then
       local elapsed, resolution = timer_stop(timer)
       local throughput = query_count / (elapsed / resolution)
-      print(string.format("odbc mean throughput: %.2f [qry/s]", throughput))
+      print(string.format("lluv mean throughput: %.2f [qry/s]", throughput))
       return uv.stop()
     end
 
