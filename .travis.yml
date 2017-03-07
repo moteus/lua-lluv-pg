@@ -33,6 +33,9 @@ addons:
   apt:
     packages:
       - uuid-dev 
+      - unixodbc
+      - unixodbc-dev
+      - odbc-postgresql
 
 services:
   - postgresql
@@ -72,9 +75,13 @@ before_script:
   - luarocks show lua-log          > /dev/null 2>&1 || luarocks install lua-log
   - luarocks show lpeg             > /dev/null 2>&1 || luarocks install lpeg
   - luarocks show stacktraceplus   > /dev/null 2>&1 || luarocks install stacktraceplus
+  - luarocks show odbc             > /dev/null 2>&1 || luarocks install odbc
+  - luarocks show pgmoon           > /dev/null 2>&1 || luarocks install pgmoon
 
 script:
   - busted_bootstrap --verbose --coverage
+  - lua ./examples/perfomance.lua
+  - lua ./examples/perfomance.lua
 
 after_success:
   - luacov-coveralls -v
