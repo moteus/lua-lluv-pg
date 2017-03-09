@@ -92,15 +92,19 @@ local function moon_perform(query_count, sql)
   database:disconnect()
 end
 
-local function lluv_perform(query_count, sql)
+local function lluv_perform(database_count, query_count, sql)
   local pg   = require "lluv.pg"
   local uv   = require "lluv"
 
-  local database = pg.new{
-    database = CONFIG.database;
-    user     = CONFIG.user;
-    password = CONFIG.password;
-  }
+  database_count = database_count or 1
+  local databases = {}
+  for i = 1, database_count do
+    databases[i] = pg.new{
+      database = CONFIG.database;
+      user     = CONFIG.user;
+      password = CONFIG.password;
+    }
+  end
 
   local counter, timer = query_count
   local function execute(self, err, res)
@@ -109,20 +113,30 @@ local function lluv_perform(query_count, sql)
     if counter == 0 then
       local elapsed, resolution = timer_stop(timer)
       local throughput = query_count / (elapsed / resolution)
-      print(string.format("lluv mean throughput: %.2f [qry/s]", throughput))
+      print(string.format("lluv(%d) mean throughput: %.2f [qry/s]", database_count, throughput))
       return uv.stop()
     end
 
-    database:query(sql, execute)
+    self:query(sql, execute)
   end
 
-  database:connect(function()
-    timer = timer_start()
-    execute()
-  end)
+  local n = database_count
+  for i = 1, database_count do
+    databases[i]:connect(function()
+      n = n - 1
+      if n == 0 then
+        timer = timer_start()
+        for i = 1, database_count do
+          execute(databases[i])
+        end
+      end
+    end)
+  end
 
   uv.run()
-  database:close()
+  for i = 1, database_count do
+    databases[i]:close()
+  end
   uv.run()
 end
 
@@ -133,4 +147,5 @@ local sql = "select 'hello'::text"
 
 odbc_perform(query_count, sql)
 moon_perform(query_count, sql)
-lluv_perform(query_count, sql)
+lluv_perform(1, query_count, sql)
+lluv_perform(2, query_count, sql)
