@@ -482,10 +482,10 @@ function Connection:connect(cb)
   end)
 
   if self._reconnect_interval and not self._reconnect then
-    self._reconnect = AutoReconnect(self, self._reconnect_interval, function()
+    self._reconnect = AutoReconnect(self, self._reconnect_interval, function(self)
       self._ee:emit('reconnect')
-    end, function()
-      self._ee:emit('disconnect')
+    end, function(self, ...)
+      self._ee:emit('disconnect', ...)
     end)
   end
 end
