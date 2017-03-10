@@ -905,3 +905,91 @@ describe('pg prepared query', function()
     done()
   end)
 end)
+
+describe('pg reconnect', function()
+  local cnn
+ 
+  it('should not connect by self', function(done) async()
+    uv.timer():start(1500, function()
+      assert.falsy(cnn:connected())
+      done()
+    end)
+  end)
+
+  it('should reconnect', function(done) async()
+    cnn:connect(function(self, err) assert_nil(err)
+      -- take a time to call all events
+      uv.timer():start(100, function()
+        local ECONNRESET = uv.error("LIBUV", uv.ECONNRESET)
+
+        cnn:on('close', function(_, _, err)
+          assert.equal(ECONNRESET, err)
+        end)
+
+        cnn:on('ready', function()
+          done()
+        end)
+
+        uv.defer(function() -- simulate disconnect
+          self:_close_impl(ECONNRESET)
+        end)
+      end)
+    end)
+  end)
+
+  it('should allows connect/close multiple times', function(done) async()
+    local function test(done)
+      cnn:connect(function(self, err)
+        uv.timer():start(100, function()
+          local ECONNRESET = uv.error("LIBUV", uv.ECONNRESET)
+
+          cnn:on('close', function(self, event, err)
+            assert.equal(ECONNRESET, err)
+          end)
+
+          cnn:on('ready', function()
+            cnn:close(function()
+              cnn:removeAllListeners()
+              uv.defer(done)
+            end)
+          end)
+
+          uv.defer(function() -- simulate disconnect
+            self:_close_impl(ECONNRESET)
+          end)
+
+        end)
+      end)
+    end
+
+    test(function()
+      uv.timer():start(1500, function()
+        -- no reconnect after close
+        assert.falsy(cnn:connected())
+        test(function()
+          done()
+        end)
+      end)
+    end)
+  end)
+
+  before_each(function(done) async()
+    local cfg = utils.deep_copy(CONFIG)
+    cfg.reconnect = 1
+    cnn = pg.new(cfg)
+    done()
+  end)
+
+  after_each(function(done) async()
+    if cnn then
+      cnn:removeAllListeners()
+      cnn:close(function(self)
+        done()
+      end)
+      cnn = nil
+      return
+    end
+    done()
+  end)
+
+end)

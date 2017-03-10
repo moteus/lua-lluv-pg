@@ -56,6 +56,36 @@ end
 
 end
 
+local function AutoReconnect(cnn, interval, on_connect, on_disconnect)
+  local timer = uv.timer():start(0, interval, function(self)
+    self:stop()
+    cnn:connect()
+  end):stop()
+
+  local connected = true
+
+  cnn:on('close', function(self, event, ...)
+    local flag = connected
+
+    connected = false
+
+    if flag then on_disconnect(self, ...) end
+
+    if timer:closed() or timer:closing() then
+      return
+    end
+
+    timer:again()
+  end)
+
+  cnn:on('ready', function(self, event, ...)
+    connected = true
+    on_connect(self, ...)
+  end)
+
+  return timer
+end
+
 local Connection = ut.class() do
 
 local function translate_desc(self, resultset, desc)
@@ -208,6 +238,14 @@ function Connection:__init(cfg)
   self._close.on_ready          = self._on_close_ready
   end
 
+  if cfg.reconnect then
+    local interval = 30
+    if type(cfg.reconnect) == 'number' then
+      interval = cfg.reconnect * 1000
+    end
+    self._reconnect_interval = interval
+  end
+
   return self
 end
 
@@ -272,7 +310,7 @@ function Connection:_on_write_done(err)
     if err ~= EOF then
       self._ee:emit('error', err)
     end
-    self:close(err)
+    self:_close_impl(err)
   end
 end
 
@@ -430,7 +468,7 @@ function Connection:connect(cb)
   self._cli = uv.tcp():connect(host, port, function(cli, err)
     if err then
       self._ee:emit('error', err)
-      return self:close(err)
+      return self:_close_impl(err)
     end
 
     self._ee:emit('open')
@@ -442,6 +480,14 @@ function Connection:connect(cb)
 
     self._fsm:start("3.0", self._pg_opt)
   end)
+
+  if self._reconnect_interval and not self._reconnect then
+    self._reconnect = AutoReconnect(self, self._reconnect_interval, function()
+      self._ee:emit('reconnect')
+    end, function()
+      self._ee:emit('disconnect')
+    end)
+  end
 end
 
 function Connection:cancel(cb)
@@ -476,7 +522,7 @@ function Connection:_start_read()
       if err ~= EOF then
         self._ee:emit('error', err)
       end
-      return self:close(err)
+      return self:_close_impl(err)
     end
 
     self._reader:append(data)
@@ -627,7 +673,15 @@ function Connection:_execute_query(name, params, resultset, cb)
   self._fsm:start(not resultset, portal, name, nil, params, 0)
 end
 
-function Connection:close(err, cb)
+function Connection:close(...)
+  if self._reconnect then
+    self._reconnect:close()
+    self._reconnect = nil
+  end
+  return self:_close_impl(...)
+end
+
+function Connection:_close_impl(err, cb)
   if type(err) == 'function' then
     cb, err = err
   end
@@ -661,7 +715,7 @@ function Connection:close(err, cb)
 
       call_q(close_q, self, err)
 
-      self._ee:emit('close')
+      self._ee:emit('close', err)
     end)
   end
 
