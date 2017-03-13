@@ -1,7 +1,11 @@
+package.path = "..\\src\\?.lua;" .. package.path
+
 local uv = require "lluv"
 local ut = require "lluv.utils"
 local pg = require "lluv.pg"
 local EventEmitter = require "EventEmitter".EventEmitter
+
+local ENOTCONN  = uv.error('LIBUV', uv.ENOTCONN)
 
 -- Pool does not track any query activity
 -- it just do round robin for multiple connection
@@ -43,8 +47,10 @@ function Pool:__init(n, cfg)
     local db = pg.new(cfg)
 
     db:on('ready', function(db)
-      self._waiting[db] = nil
-      append(self._active, db)
+      if self._waiting[db] then
+        self._waiting[db] = nil
+        append(self._active, db)
+      end
       self:emit('connection::ready', db)
     end)
 
@@ -62,8 +68,17 @@ function Pool:__init(n, cfg)
   return self
 end
 
-function Pool:get()
-  return shift_value(self._active)
+function Pool:query(...)
+  local db = shift_value(self._active)
+  if not db then
+    local cb = select(-1, ...)
+    if type(cb) == 'function' then
+      return uv.defer(cb, db, ENOTCONN)
+    end
+    return
+  end
+
+  return db:query(...)
 end
 
 function Pool:close()
@@ -89,10 +104,9 @@ local pool = PGConnectionPool.new(5, {
 })
 
 uv.timer():start(0, 1000, function()
-  local qry = pool:get()
-  if qry then qry:query('select 1', function(self, err, rs)
-    print(self, rs[1][1])
-  end) end
+  pool:query('select $1::text', {'hello'}, function(self, err, rs)
+    print(self, err or rs[1][1])
+  end)
 end):unref()
 
 uv.timer():start(20000, function()
