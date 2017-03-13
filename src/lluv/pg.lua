@@ -532,7 +532,8 @@ end
 function Connection:query(...)
   if not self._cli then
     local cb = is_callable(select(-1, ...))
-    return uv.defer(cb, self, ENOTCONN)
+    if cb then uv.defer(cb, self, ENOTCONN) end
+    return
   end
 
   self._queue:push{'query', ...}
@@ -630,7 +631,8 @@ function Connection:_next_extended_query(sql, params, cb)
   self:_prepare_query(statement_name, sql, function(self, err, recordset)
     if err then
       uv.defer(self._next_query, self)
-      return uv.defer(cb, self, err)
+      if cb then uv.defer(cb, self, err) end
+      return
     end
 
     return self:_execute_query(statement_name, params, recordset, cb)

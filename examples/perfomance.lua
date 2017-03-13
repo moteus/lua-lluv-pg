@@ -18,11 +18,13 @@ local zmq  = prequire "lzmq"
 if zmq then
 
 function timer_start()
-  return zmq.utils.stopwatch():start()
+  local timer = zmq.utils.stopwatch():start()
+  return timer
 end
 
 function timer_stop(timer)
-  return timer:stop(), 1000000
+  local elapsed = timer:stop()
+  return elapsed, 1000000
 end
 
 else
@@ -66,17 +68,7 @@ local function odbc_perform(query_count, sql)
   database:destroy()
 end
 
-local function moon_perform(query_count, sql)
-  local moon = prequire "pgmoon"
-  if not moon then return print("pgmoon not installed") end
-
-  local database = moon.new{
-    host = "127.0.0.1", port = "5432",
-    database = CONFIG.database;
-    user     = CONFIG.user;
-    password = CONFIG.password;
-  }
-
+local function moon_perform_impl(name, database, query_count, sql)
   assert(database:connect())
 
   local timer = timer_start()
@@ -87,9 +79,23 @@ local function moon_perform(query_count, sql)
 
   local elapsed, resolution = timer_stop(timer)
   local throughput = query_count / (elapsed / resolution)
-  print(string.format("moon mean throughput: %.2f [qry/s]", throughput))
+  print(string.format("%s mean throughput: %.2f [qry/s]", name, throughput))
 
   database:disconnect()
+end
+
+local function moon_perform(...)
+  local moon = prequire "pgmoon"
+  if not moon then return print("pgmoon not installed") end
+
+  local database = moon.new{
+    host = "127.0.0.1", port = "5432",
+    database = CONFIG.database;
+    user     = CONFIG.user;
+    password = CONFIG.password;
+  }
+
+  return moon_perform_impl('moon', database, ...)
 end
 
 local function lluv_perform(database_count, query_count, sql)
@@ -114,6 +120,7 @@ local function lluv_perform(database_count, query_count, sql)
       local elapsed, resolution = timer_stop(timer)
       local throughput = query_count / (elapsed / resolution)
       print(string.format("lluv(%d) mean throughput: %.2f [qry/s]", database_count, throughput))
+      execute = nil
       return uv.stop()
     end
 
@@ -140,12 +147,68 @@ local function lluv_perform(database_count, query_count, sql)
   uv.run()
 end
 
+local function moon_lluv_perform(query_count, sql)
+  local moon = prequire "pgmoon"
+  if not moon then return print("pgmoon not installed") end
+  if not prequire'pgmoon.lluv' then return print("pgmoon-lluv not installed") end
+
+  local uv   = require "lluv"
+  local ut   = require "lluv.utils"
+
+  ut.corun(function()
+    local database = moon.new{
+      host = "127.0.0.1", port = "5432",
+      database = CONFIG.database;
+      user     = CONFIG.user;
+      password = CONFIG.password;
+      socket_type = 'lluv';
+    }
+
+    return moon_perform_impl('moon-lluv', database, query_count, sql)
+  end)
+
+  uv.run()
+end
+
+local function colluv_perform(query_count, sql)
+  local uv   = require "lluv"
+  local ut   = require "lluv.utils"
+  local pg   = require "lluv.pg.co"
+
+  ut.corun(function()
+    local database = pg.new{
+      database = CONFIG.database;
+      user     = CONFIG.user;
+      password = CONFIG.password;
+    }
+    database:connect()
+
+    local timer = timer_start()
+
+    for i = 1, query_count do
+      database:query(sql)
+    end
+
+    local elapsed, resolution = timer_stop(timer)
+    local throughput = query_count / (elapsed / resolution)
+    print(string.format("co-lluv mean throughput: %.2f [qry/s]", throughput))
+
+    database:close()
+  end)
+
+  uv.run()
+end
+
 -- we really need simple query because we need compare only
 -- protocol overhead.
-local query_count = 10000
+local query_count = 50000
 local sql = "select 'hello'::text"
 
 odbc_perform(query_count, sql)
 moon_perform(query_count, sql)
+moon_lluv_perform(query_count, sql)
 lluv_perform(1, query_count, sql)
 lluv_perform(2, query_count, sql)
+lluv_perform(3, query_count, sql)
+lluv_perform(4, query_count, sql)
+colluv_perform(query_count, sql)
