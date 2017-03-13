@@ -77,7 +77,7 @@ function PGServerError:__tostring()
   local str, t = {}, self._t
   local cno, cname = self:class()
 
-  append(str, F("[PostgreSQL][%s][%s]%s", t.S, t.C, t.M))
+  append(str, F("[%s][%s][%s]%s", ERROR_PG, t.S, t.C, t.M))
   if t.D then append(str, t.D)                             end
               append(str, F("Class: %s",           cname))
   if t.H then append(str, F("Hint: %s",              t.H)) end
@@ -123,8 +123,8 @@ function PGServerError:cat() return ERROR_PG end
 function PGProtoError:ext() return self._ext end
 
 function PGProtoError:__tostring()
-  return string.format("[PostgreSQL][%s] %s (%d) - `%q`", 
-    self:name(), self:msg(), self:no(), self:ext()
+  return string.format("[%s][%s] %s (%d) - `%q`",
+    ERROR_PG, self:name(), self:msg(), self:no(), self:ext()
   )
 end
 

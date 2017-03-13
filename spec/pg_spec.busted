@@ -993,3 +993,59 @@ describe('pg reconnect', function()
   end)
 
 end)
+
+describe('pg queue overflow', function()
+  local cnn
+  local N = 10
+ 
+  it('should detect overflow send queue', function(done) async()
+    local called, n = false, N + 1
+    
+    local function finish()
+      assert.is_true(called)
+      done()
+    end
+
+    cnn:on('overflow', function()
+      called = true
+    end)
+
+    for i = 1, n do
+      cnn:query('select ' .. i, function(self, err, res)
+        if i > N then
+          assert.not_nil(err)
+          assert.is_function(err.cat)
+          assert.equal('PostgreSQL', err:cat())
+          assert.equal('EQUEUE', err:name())
+        else
+          assert_nil(err)
+          assert.equal(tostring(i), res[1][1])
+        end
+
+        n = n - 1
+        if n == 0 then uv.defer(finish) end
+      end)
+    end
+  end)
+
+  before_each(function(done) async()
+    local cfg = utils.deep_copy(CONFIG)
+    cfg.max_queue_size = N
+    cnn = pg.new(cfg)
+    cnn:connect(function(self, err) assert_nil(err)
+      done()
+    end)
+  end)
+
+  after_each(function(done) async()
+    if cnn then
+      if cnn:connected() then
+        return cnn:close(function()
+          done()
+        end)
+      end
+      cnn = nil
+    end
+    done()
+  end)
+end)

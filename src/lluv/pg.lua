@@ -24,9 +24,21 @@ end
 local append, call_q, is_callable =
   utils.append, utils.call_q, utils.is_callable
 
+local last_cb = function(...)
+  return is_callable(
+    select(-1, ...)
+  )
+end
+
 local EOF       = uv.error("LIBUV", uv.EOF)
 local ENOTCONN  = uv.error('LIBUV', uv.ENOTCONN)
 local ECANCELED = uv.error('LIBUV', uv.ECANCELED)
+
+local PGLibError = ut.Errors("PostgreSQL", {
+  { EQUEUE           = "Query queue overflow" },
+})
+
+local MAX_DB_QUEUE_SIZE = 1024
 
 local Decoders = ut.class() do
 
@@ -126,6 +138,7 @@ function Connection:__init(cfg)
   self._open_q   = nil
   self._close_q  = nil
   self._queue    = nil
+  self._max_queue_size = cfg.max_queue_size or MAX_DB_QUEUE_SIZE
   self._active   = {
     resultset = nil;
     callback  = nil;
@@ -529,6 +542,19 @@ function Connection:_start_read()
   end)
 end
 
+function Connection:_push_request(...)
+  local n = self._queue:size()
+  if n >= self._max_queue_size then
+    local cb = last_cb(...)
+    if cb then
+      uv.defer(cb, self, PGLibError("EQUEUE", tostring(self._max_queue_size)))
+    end
+    self._ee:emit('overflow')
+    return
+  end
+  self._queue:push{...}
+end
+
 function Connection:query(...)
   if not self._cli then
     local cb = is_callable(select(-1, ...))
@@ -536,7 +562,7 @@ function Connection:query(...)
     return
   end
 
-  self._queue:push{'query', ...}
+  self:_push_request('query', ...)
 
   return self:_next_query()
 end
@@ -547,7 +573,7 @@ function Connection:query_prepared(...)
     return uv.defer(cb, self, ENOTCONN)
   end
 
-  self._queue:push{'execute', ...}
+  self:_push_request('execute', ...)
 
   return self:_next_query()
 end
@@ -557,7 +583,7 @@ function Connection:prepare(sql, cb)
     return uv.defer(cb, self, ENOTCONN)
   end
 
-  self._queue:push{'prepare', gen_name(), sql, cb}
+  self:_push_request('prepare', gen_name(), sql, cb)
 
   return self:_next_query()
 end
@@ -567,7 +593,7 @@ function Connection:unprepare(name, cb)
     return uv.defer(cb, self, ENOTCONN)
   end
 
-  self._queue:push{'unprepare', name, cb}
+  self:_push_request('unprepare', name, cb)
 
   return self:_next_query()
 end
