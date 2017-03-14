@@ -63,7 +63,6 @@ before_install:
 install:
   - if [ "$LUA" != "lua 5.3" ]; then luarocks show struct > /dev/null 2>&1 || luarocks install struct; fi
   - luarocks show lluv > /dev/null 2>&1 || luarocks install lluv UV_DIR=$TRAVIS_BUILD_DIR/libuv
-  - luarocks show null > /dev/null 2>&1 || luarocks install null --server=http://luarocks.org/dev
   - luarocks make rockspecs/lluv-pg-scm-0.rockspec
 
 before_script:
