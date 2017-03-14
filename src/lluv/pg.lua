@@ -460,6 +460,10 @@ end
 
 end
 
+local on_reconnect  = function(self, ...) self._ee:emit('reconnect',  ...) end
+
+local on_disconnect = function(self, ...) self._ee:emit('disconnect', ...) end
+
 function Connection:connect(cb)
   if self._ready then
     if cb then uv.defer(cb, self) end
@@ -495,11 +499,7 @@ function Connection:connect(cb)
   end)
 
   if self._reconnect_interval and not self._reconnect then
-    self._reconnect = AutoReconnect(self, self._reconnect_interval, function(self)
-      self._ee:emit('reconnect')
-    end, function(self, ...)
-      self._ee:emit('disconnect', ...)
-    end)
+    self._reconnect = AutoReconnect(self, self._reconnect_interval, on_reconnect, on_disconnect)
   end
 end
 
