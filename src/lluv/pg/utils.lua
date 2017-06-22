@@ -12,11 +12,13 @@ local function deep_copy(t)
   return o
 end
 
-local function super(self, m, ...)
-  if self.__base and self.__base[m] then
-    return self.__base[m](self, ...)
+local function super(class, self, m, ...)
+  if class.__base and class.__base[m] then
+    return class.__base[m](self, ...)
   end
-  return self
+  if m == '__init' then
+    return self
+  end
 end
 
 local function call_q(q, ...)

@@ -11,7 +11,7 @@ local FSMReader     = FSM.FSMReader
 local Prepare       = FSM.Prepare
 local Execute       = FSM.Execute
 
-local append, super = utils.append, utils.super
+local append = utils.append
 
 local function NewPG(cfg)
   local opt = {

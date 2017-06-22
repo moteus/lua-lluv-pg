@@ -255,7 +255,7 @@ fsm:state("auth_done", S("terminate", {
 }))
 
 function Setup:__init(...)
-  self = super(self, '__init', ...)
+  self = super(Setup, self, '__init', ...)
 
   self._fsm = fsm:clone():reset()
   return self
@@ -295,7 +295,7 @@ fsm:state("error_recived", S("error_recived", {
 }))
 
 function SimpleQuery:__init(...)
-  self = super(self, '__init', ...)
+  self = super(SimpleQuery, self, '__init', ...)
 
   self._fsm = fsm:clone():reset()
   return self
@@ -325,7 +325,7 @@ local fsm = InitFSM("wait")
 fsm:state("wait", S{})
 
 function Idle:__init(...)
-  self = super(self, '__init', ...)
+  self = super(Idle, self, '__init', ...)
 
   self._fsm = fsm:clone():reset()
   return self
@@ -358,7 +358,7 @@ fsm:state("describe", S("describe", {
 }))
 
 function Prepare:__init(...)
-  self = super(self, '__init', ...)
+  self = super(Prepare, self, '__init', ...)
 
   self._fsm = fsm:clone():reset()
   return self
@@ -424,7 +424,7 @@ fsm:action("send_close", function(self, event, ctx, data)
 end)
 
 function Execute:__init(...)
-  self = super(self, '__init', ...)
+  self = super(Execute, self, '__init', ...)
 
   self._fsm = fsm:clone():reset()
   return self
@@ -473,7 +473,7 @@ fsm:state("wait", S{
 })
 
 function Close:__init(...)
-  self = super(self, '__init', ...)
+  self = super(Close, self, '__init', ...)
 
   self._fsm = fsm:clone():reset()
   return self
@@ -540,7 +540,7 @@ end
 local FSMReader = ut.class(MessageReader) do
 
 function FSMReader:__init(fsm)
-  self = super(self, '__init')
+  self = super(FSMReader, self, '__init')
   self._fsm  = fsm
   self._done = false
   
