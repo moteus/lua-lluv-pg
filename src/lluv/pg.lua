@@ -1,5 +1,4 @@
 local uv             = require "lluv"
-local socket         = require "lluv.luasocket"
 local ut             = require "lluv.utils"
 local EventEmitter   = require "EventEmitter"
 local Setup          = require "lluv.pg.fsm".Setup
