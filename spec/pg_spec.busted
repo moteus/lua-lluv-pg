@@ -11,6 +11,7 @@ local pg    = require "lluv.pg"
 local loop  = require "lluv.busted.loop"
 local stp   = prequire"StackTracePlus"
 local utils = require "lluv.pg.utils"
+local inspect = require "inspect"
 
 local NULL = pg.NULL
 
@@ -798,6 +799,21 @@ describe('pg query decode result', function()
 
   it('should execute simple query with decode recordsets', function(done) async()
     cnn:query(sql, function(self, err, recordset, count) assert_nil(err)
+      local tmp = inspect {
+        { "hello", 1, "5.2000", "-5.2000", true, { 1, 2, 3 }, 5.2 },
+        header = {
+          { "f1", "f2", "f31", "f32", "f4", "f5", "f6" }, {
+            { "text",        25,   0, 65535, 4294967295, decode = tostring       },
+            { "int4",        23,   0, 4,     4294967295, decode = tonumber       },
+            { "numeric",     1700, 0, 65535, 655368,     decode = tostring       }, 
+            { "numeric",     1700, 0, 65535, 4294967295, decode = tostring       },
+            { "bool",        16,   0, 1,     4294967295, decode = function() end },
+            { "array::int4", 1007, 0, 65535, 4294967295, decode = tonumber       },
+            { "float8",      701,  0, 8,     4294967295, decode = tonumber       },
+          } 
+        }
+      }
+      assert.equal(tmp, inspect(recordset))
       assert.same(rs, norm_rs(recordset))
       done()
     end)
