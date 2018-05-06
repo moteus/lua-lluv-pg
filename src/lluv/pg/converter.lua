@@ -296,9 +296,17 @@ local converters = {
 --   regrole
 };
 
-for k, v in pairs(converters) do
-  if not k:find('array::') then
-    converters['array::' .. k] = v
+do
+  local array_converters = {}
+
+  for k, v in pairs(converters) do
+    if not k:find('array::') then
+      array_converters['array::' .. k] = v
+    end
+  end
+
+  for type_name, converter in pairs(array_converters) do
+    converters[type_name] = converter;
   end
 end
 
