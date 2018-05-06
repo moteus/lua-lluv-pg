@@ -133,9 +133,11 @@ local function NewPG(cfg)
 
   local function pump()
     while not reader:done() do
-      local data
-      data, srv_err = assert(cnn:receive"*r")
-      if not data then break end
+      local data, err = cnn:receive"*r"
+      if not data then
+        srv_err = srv_err or err
+        break
+      end
       reader:append(data)
     end
   end

@@ -189,6 +189,17 @@ describe('pg query', function()
     end)
   end)
 
+  it('should handle invalid query with parameters', function(done) async()
+    ut.corun(function() cnn:attach(coroutine.running())
+      local sql = "not valid query"
+      local recordset, err = cnn:query(sql, {'hello'})
+      assert_nil(recordset)
+      assert.not_nil(err)
+      assert.equal('PostgreSQL', err:cat())
+      done()
+    end)
+  end)
+
   before_each(function(done) async() ut.corun(function()
     cnn = assert(pg.new(CONFIG))
     assert.equal(cnn, cnn:connect())
