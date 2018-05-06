@@ -70,14 +70,13 @@ before_script:
   - luarocks show stacktraceplus   > /dev/null 2>&1 || luarocks install stacktraceplus
   - luarocks show odbc             > /dev/null 2>&1 || luarocks install odbc
   - luarocks show luasocket        > /dev/null 2>&1 || luarocks install luasocket
-  - luarocks show inspect          > /dev/null 2>&1 || luarocks install inspect
   # pgmoon require `bitopt` which not compatiable with Lua 5.3
   - if [ "$LUA" != "lua 5.3" ]; then luarocks show pgmoon > /dev/null 2>&1 || luarocks install pgmoon; fi
 
 script:
   - busted_bootstrap --verbose --coverage
-  # - lua ./examples/perfomance.lua
-  # - lua ./examples/perfomance.lua
+  - lua ./examples/perfomance.lua
+  - lua ./examples/perfomance.lua
 
 after_success:
   - luacov-coveralls -v
